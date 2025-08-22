@@ -118,6 +118,9 @@ public:
 	void BeginFrame();
 	void EndFrame();
 	
+	// Shadow light management
+	void AddShadowLight( const vec3_t org, float radius, float intensity, float r, float g, float b, qhandle_t hShader, int flags );
+	
 	// Shadow map management
 	shadowMap_t* AllocateShadowMap(refLight_t* light, int cascade = -1);
 	void FreeShadowMap(shadowMap_t* shadowMap);
@@ -131,6 +134,7 @@ public:
 	// Rendering
 	void RenderShadowMaps();
 	void SetupShadowMapRendering(shadowMap_t* shadowMap);
+	void RenderShadowCasters(shadowMap_t* shadowMap);
 	void FinishShadowMapRendering();
 	
 	// Light management
@@ -146,12 +150,21 @@ private:
 	lightShadowInfo_t lightShadows[MAX_SHADOW_LIGHTS];
 	int numShadowLights;
 	
+	// Shadow-only lights from cgame (REF_INVERSE_DLIGHT)
+	refLight_t shadowOnlyLights[MAX_SHADOW_LIGHTS];
+	int numShadowOnlyLights;
+	
 	// Internal methods
 	void InitAtlas();
 	void ShutdownAtlas();
 	void CreateShadowMapFBO();
 	void SetupLightMatrix(refLight_t* light, shadowMap_t* shadowMap, const vec3_t* bounds = nullptr);
 	void CalculateCascadeBounds(const viewParms_t* viewParms, float nearSplit, float farSplit, vec3_t bounds[2]);
+	
+	// Light matrix calculation for different light types
+	void SetupDirectionalLightMatrix(refLight_t* light, shadowMap_t* shadowMap, matrix_t viewMatrix, matrix_t projectionMatrix);
+	void SetupPointLightMatrix(refLight_t* light, shadowMap_t* shadowMap, matrix_t viewMatrix, matrix_t projectionMatrix);
+	void SetupSpotLightMatrix(refLight_t* light, shadowMap_t* shadowMap, matrix_t viewMatrix, matrix_t projectionMatrix);
 	
 	// Technique-specific setup
 	void SetupESMParams(shadowMap_t* shadowMap);
@@ -168,5 +181,8 @@ void R_InitShadowMapping();
 void R_ShutdownShadowMapping();
 void R_BeginShadowMapping();
 void R_EndShadowMapping();
+
+// Shadow light management
+void R_AddShadowLight( const vec3_t org, float radius, float intensity, float r, float g, float b, qhandle_t hShader, int flags );
 
 #endif // TR_SHADOWMAP_H
