@@ -135,6 +135,8 @@ set(RENDERERLIST
     ${ENGINE_DIR}/renderer/tr_shade.cpp
     ${ENGINE_DIR}/renderer/tr_shader.cpp
     ${ENGINE_DIR}/renderer/tr_shade_calc.cpp
+    ${ENGINE_DIR}/renderer/tr_shadowmap.cpp
+    ${ENGINE_DIR}/renderer/tr_shadowmap.h
     ${ENGINE_DIR}/renderer/tr_skin.cpp
     ${ENGINE_DIR}/renderer/tr_sky.cpp
     ${ENGINE_DIR}/renderer/tr_surface.cpp
@@ -207,6 +209,9 @@ set(GLSLSOURCELIST
     ${ENGINE_DIR}/renderer/glsl_source/reflection_CB_fp.glsl
     ${ENGINE_DIR}/renderer/glsl_source/screen_vp.glsl
     ${ENGINE_DIR}/renderer/glsl_source/screen_fp.glsl
+    ${ENGINE_DIR}/renderer/glsl_source/shadowDepth_vp.glsl
+    ${ENGINE_DIR}/renderer/glsl_source/shadowDepth_fp.glsl
+    ${ENGINE_DIR}/renderer/glsl_source/shadowMapping.glsl
     ${ENGINE_DIR}/renderer/glsl_source/skybox_vp.glsl
     ${ENGINE_DIR}/renderer/glsl_source/skybox_fp.glsl
 )

@@ -53,6 +53,9 @@
 #include "reflection_CB_fp.glsl.h"
 #include "screen_vp.glsl.h"
 #include "screen_fp.glsl.h"
+#include "shadowDepth_vp.glsl.h"
+#include "shadowDepth_fp.glsl.h"
+#include "shadowMapping.glsl.h"
 #include "skybox_vp.glsl.h"
 #include "skybox_fp.glsl.h"
 
@@ -115,6 +118,12 @@ std::unordered_map<std::string, std::string> shadermap({
 	{ "reflection_CB_fp.glsl", std::string( reinterpret_cast< const char* >( reflection_CB_fp_glsl ), sizeof( reflection_CB_fp_glsl ) ) },
 	{ "screen_vp.glsl", std::string( reinterpret_cast< const char* >( screen_vp_glsl ), sizeof( screen_vp_glsl ) ) },
 	{ "screen_fp.glsl", std::string( reinterpret_cast< const char* >( screen_fp_glsl ), sizeof( screen_fp_glsl ) ) },
+	
+	// Shadow mapping shaders
+	{ "shadowDepth_vp.glsl", std::string( reinterpret_cast< const char* >( shadowDepth_vp_glsl ), sizeof( shadowDepth_vp_glsl ) ) },
+	{ "shadowDepth_fp.glsl", std::string( reinterpret_cast< const char* >( shadowDepth_fp_glsl ), sizeof( shadowDepth_fp_glsl ) ) },
+	{ "shadowMapping.glsl", std::string( reinterpret_cast< const char* >( shadowMapping_glsl ), sizeof( shadowMapping_glsl ) ) },
+	
 	{ "skybox_vp.glsl", std::string( reinterpret_cast< const char* >( skybox_vp_glsl ), sizeof( skybox_vp_glsl ) ) },
 	{ "skybox_fp.glsl", std::string( reinterpret_cast< const char* >( skybox_fp_glsl ), sizeof( skybox_fp_glsl ) ) },
 	});

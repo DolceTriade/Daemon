@@ -77,6 +77,7 @@ GLShader_screen                          *gl_screenShader = nullptr;
 GLShader_screenMaterial                  *gl_screenShaderMaterial = nullptr;
 GLShader_skybox                          *gl_skyboxShader = nullptr;
 GLShader_skyboxMaterial                  *gl_skyboxShaderMaterial = nullptr;
+GLShader_shadowDepth                     *gl_shadowDepthShader = nullptr;
 GLShaderManager                           gl_shaderManager;
 
 namespace // Implementation details
@@ -2508,6 +2509,10 @@ GLShader_lightMappingMaterial::GLShader_lightMappingMaterial() :
 	GLCompileMacro_USE_RELIEF_MAPPING( this ),
 	GLCompileMacro_USE_REFLECTIVE_SPECULAR( this ),
 	GLCompileMacro_USE_PHYSICAL_MAPPING( this ) {
+	// TODO: Re-enable shadow uniforms when shadow map rendering is implemented
+	// u_ShadowAtlas( this ),
+	// u_ShadowParams( this ),
+	// u_ShadowMatrices( this ) {
 }
 
 GLShader_reflection::GLShader_reflection():
@@ -2970,4 +2975,20 @@ GLShader_processSurfaces::GLShader_processSurfaces() :
 	u_Frame( this ),
 	u_ViewID( this ),
 	u_SurfaceCommandsOffset( this ) {
+}
+
+GLShader_shadowDepth::GLShader_shadowDepth() :
+	GLShader( "shadowDepth", ATTR_POSITION | ATTR_TEXCOORD | ATTR_QTANGENT,
+		false, "shadowDepth", "shadowDepth" ),
+	u_ModelMatrix( this ),
+	u_ModelViewProjectionMatrix( this ),
+	GLDeformStage( this ),
+	GLCompileMacro_USE_VERTEX_SKINNING( this ),
+	GLCompileMacro_USE_VERTEX_ANIMATION( this ) {
+}
+
+void GLShader_shadowDepth::SetShaderProgramUniforms( ShaderProgramDescriptor *shaderProgram )
+{
+	// Shadow depth shader doesn't need any texture uniforms
+	// All uniforms are handled by the material system
 }

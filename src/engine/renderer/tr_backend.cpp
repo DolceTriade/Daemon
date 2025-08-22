@@ -2673,6 +2673,11 @@ static void RB_RenderView( bool depthPass )
 
 	GL_CheckErrors();
 
+	// Generate shadow maps before rendering the main view
+	if ( !depthPass && R_ShadowMappingEnabled() ) {
+		RB_RenderShadowMaps();
+	}
+
 	if( depthPass ) {
 		if ( glConfig.usingMaterialSystem ) {
 			materialSystem.RenderMaterials( shaderSort_t::SS_DEPTH, shaderSort_t::SS_DEPTH, backEnd.viewParms.viewID );
@@ -3360,6 +3365,11 @@ const RenderCommand *SetupLightsCommand::ExecuteSelf( ) const
 			default:
 				break;
 			}
+			
+			// Set up shadow mapping for this light if enabled
+			if ( R_ShadowMappingEnabled() && i < r_shadowLights.Get() ) {
+				shadowMapManager.SetupLightShadows( light, i );
+			}
 		}
 
 		glUnmapBuffer( bufferTarget );
@@ -3793,6 +3803,31 @@ void RB_ExecuteRenderCommands( const void *data )
 	t2 = ri.Milliseconds();
 	backEnd.pc.msec = t2 - t1;
 	return;
+}
+
+/*
+================
+RB_RenderShadowMaps
+================
+*/
+void RB_RenderShadowMaps()
+{
+	GLIMP_LOGCOMMENT( "--- RB_RenderShadowMaps ---" );
+	
+	if ( !R_ShadowMappingEnabled() ) {
+		return;
+	}
+	
+	// Begin shadow map generation
+	R_BeginShadowMapping();
+	
+	// TODO: For now, just do basic setup and early return
+	// This will be filled out as we implement the full pipeline
+	
+	Log::Debug("Shadow map generation placeholder");
+	
+	// End shadow map generation  
+	R_EndShadowMapping();
 }
 
 /*

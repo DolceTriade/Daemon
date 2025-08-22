@@ -123,9 +123,30 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 	cvar_t      *r_drawBuffer;
 
 	Cvar::Range<Cvar::Cvar<int>> r_shadows( "cg_shadows", "shadowing mode", Cvar::NONE,
-		Util::ordinal(shadowingMode_t::SHADOWING_BLOB),
+		Util::ordinal(shadowingMode_t::SHADOWING_EVSM32),
 		Util::ordinal(shadowingMode_t::SHADOWING_NONE),
-		Util::ordinal(shadowingMode_t::SHADOWING_BLOB) );
+		Util::ordinal(shadowingMode_t::SHADOWING_EVSM32) );
+
+	// Shadow mapping cvars
+	Cvar::Range<Cvar::Cvar<int>> r_shadowMapSize( "r_shadowMapSize", "shadow map resolution", Cvar::NONE,
+		2048, 512, 4096 );
+	Cvar::Range<Cvar::Cvar<int>> r_shadowCascades( "r_shadowCascades", "cascade count for directional lights", Cvar::NONE,
+		3, 1, 4 );
+	Cvar::Range<Cvar::Cvar<int>> r_shadowPCF( "r_shadowPCF", "PCF filter quality (0=none, 1=2x2, 2=4x4, 3=poisson)", Cvar::NONE,
+		2, 0, 3 );
+	Cvar::Range<Cvar::Cvar<float>> r_shadowBias( "r_shadowBias", "shadow depth bias", Cvar::NONE,
+		0.001f, 0.0f, 0.1f );
+	Cvar::Range<Cvar::Cvar<float>> r_shadowESMExponent( "r_shadowESMExponent", "ESM exponent factor", Cvar::NONE,
+		40.0f, 1.0f, 100.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_shadowVSMBlur( "r_shadowVSMBlur", "VSM blur radius", Cvar::NONE,
+		2.0f, 0.0f, 8.0f );
+	Cvar::Range<Cvar::Cvar<int>> r_shadowLights( "r_shadowLights", "max shadow casting lights", Cvar::NONE,
+		4, 1, 8 );
+	Cvar::Range<Cvar::Cvar<int>> r_shadowCascadeScheme( "r_shadowCascadeScheme", "cascade split scheme (0=uniform, 1=logarithmic, 2=practical)", Cvar::NONE,
+		2, 0, 2 );
+	Cvar::Range<Cvar::Cvar<int>> r_shadowAtlasSize( "r_shadowAtlasSize", "shadow atlas resolution", Cvar::NONE,
+		4096, 2048, 8192 );
+	Cvar::Cvar<bool> r_shadowDebug( "r_shadowDebug", "show shadow map debug visualization", Cvar::NONE, false );
 
 	cvar_t      *r_mode;
 	cvar_t      *r_nobind;
@@ -1249,6 +1270,12 @@ ScreenshotCmd screenshotPNGRegistration("screenshotPNG", ssFormat_t::SSF_PNG, "p
 
 		Cvar::Latch( r_shadows );
 
+		// Latch shadow mapping cvars
+		Cvar::Latch( r_shadowMapSize );
+		Cvar::Latch( r_shadowCascades );
+		Cvar::Latch( r_shadowLights );
+		Cvar::Latch( r_shadowAtlasSize );
+
 		r_maxPolys = Cvar_Get( "r_maxpolys", "10000", CVAR_LATCH );  // 600 in vanilla Q3A
 		AssertCvarRange( r_maxPolys, 600, 30000, true );
 
@@ -1431,6 +1458,8 @@ ScreenshotCmd screenshotPNGRegistration("screenshotPNG", ssFormat_t::SSF_PNG, "p
 
 		R_InitVisTests();
 
+		R_InitShadowMapping();
+
 		GL_CheckErrors();
 
 		// print info
@@ -1460,6 +1489,7 @@ ScreenshotCmd screenshotPNGRegistration("screenshotPNG", ssFormat_t::SSF_PNG, "p
 			R_ShutdownVBOs();
 			R_ShutdownFBOs();
 			R_ShutdownVisTests();
+			R_ShutdownShadowMapping();
 		}
 
 		R_DoneFreeType();

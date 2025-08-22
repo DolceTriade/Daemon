@@ -380,6 +380,14 @@ static void GLSL_InitGPUShadersOrError()
 		gl_fxaaShader->MarkProgramForBuilding( 0 );
 	}
 
+	// TODO: Re-enable shadow depth shader when shadow rendering is implemented
+	// Load shadow depth shader if shadow mapping is enabled
+	// if ( r_materialSystem.Get() && r_shadows.Get() >= Util::ordinal(shadowingMode_t::SHADOWING_ESM16) )
+	// {
+	//	gl_shaderManager.LoadShader( gl_shadowDepthShader );
+	//	gl_shadowDepthShader->MarkProgramForBuilding( 0 );
+	// }
+
 	gl_shaderManager.InitShaders();
 
 	if ( r_lazyShaders.Get() == 0 )

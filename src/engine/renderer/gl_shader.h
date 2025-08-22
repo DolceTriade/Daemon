@@ -3211,6 +3211,52 @@ class u_Lights :
 	}
 };
 
+// Shadow mapping uniforms
+class u_ShadowAtlas :
+	GLUniformSampler
+{
+public:
+	u_ShadowAtlas( GLShader *shader ) :
+		GLUniformSampler( shader, "u_ShadowAtlas", "sampler2D" )
+	{
+	}
+
+	void SetUniform_ShadowAtlas( int value )
+	{
+		this->SetValue( value );
+	}
+};
+
+class u_ShadowParams :
+	GLUniform4f
+{
+public:
+	u_ShadowParams( GLShader *shader ) :
+		GLUniform4f( shader, "u_ShadowParams" )
+	{
+	}
+
+	void SetUniform_ShadowParams( const vec4_t v )
+	{
+		this->SetValue( v );
+	}
+};
+
+class u_ShadowMatrices :
+	GLUniformMatrix4fv
+{
+public:
+	u_ShadowMatrices( GLShader *shader ) :
+		GLUniformMatrix4fv( shader, "u_ShadowMatrices", 16 )
+	{
+	}
+
+	void SetUniform_ShadowMatrices( const matrix_t *matrices, int count )
+	{
+		this->SetValue( count, GL_FALSE, matrices );
+	}
+};
+
 class GLShader_generic :
 	public GLShader,
 	public u_ColorMap,
@@ -3361,6 +3407,10 @@ class GLShader_lightMappingMaterial :
 	public GLCompileMacro_USE_RELIEF_MAPPING,
 	public GLCompileMacro_USE_REFLECTIVE_SPECULAR,
 	public GLCompileMacro_USE_PHYSICAL_MAPPING {
+	// TODO: Re-enable shadow uniforms when shadow map rendering is implemented
+	// public u_ShadowAtlas,
+	// public u_ShadowParams,
+	// public u_ShadowMatrices {
 	public:
 	GLShader_lightMappingMaterial();
 };
@@ -3774,6 +3824,18 @@ class GLShader_processSurfaces :
 	GLShader_processSurfaces();
 };
 
+class GLShader_shadowDepth :
+	public GLShader,
+	public u_ModelMatrix,
+	public u_ModelViewProjectionMatrix,
+	public GLDeformStage,
+	public GLCompileMacro_USE_VERTEX_SKINNING,
+	public GLCompileMacro_USE_VERTEX_ANIMATION
+{
+public:
+	GLShader_shadowDepth();
+	void SetShaderProgramUniforms( ShaderProgramDescriptor *shaderProgram ) override;
+};
 
 std::string GetShaderPath();
 
@@ -3813,6 +3875,7 @@ extern GLShader_screen                          *gl_screenShader;
 extern GLShader_screenMaterial                  *gl_screenShaderMaterial;
 extern GLShader_skybox                          *gl_skyboxShader;
 extern GLShader_skyboxMaterial                  *gl_skyboxShaderMaterial;
+extern GLShader_shadowDepth                     *gl_shadowDepthShader;
 extern GLShaderManager                           gl_shaderManager;
 
 #endif // GL_SHADER_H

@@ -2709,6 +2709,18 @@ enum
 
 	extern Cvar::Range<Cvar::Cvar<int>> r_shadows;
 
+	// Shadow mapping cvars
+	extern Cvar::Range<Cvar::Cvar<int>> r_shadowMapSize;
+	extern Cvar::Range<Cvar::Cvar<int>> r_shadowCascades;
+	extern Cvar::Range<Cvar::Cvar<int>> r_shadowPCF;
+	extern Cvar::Range<Cvar::Cvar<float>> r_shadowBias;
+	extern Cvar::Range<Cvar::Cvar<float>> r_shadowESMExponent;
+	extern Cvar::Range<Cvar::Cvar<float>> r_shadowVSMBlur;
+	extern Cvar::Range<Cvar::Cvar<int>> r_shadowLights;
+	extern Cvar::Range<Cvar::Cvar<int>> r_shadowCascadeScheme;
+	extern Cvar::Range<Cvar::Cvar<int>> r_shadowAtlasSize;
+	extern Cvar::Cvar<bool> r_shadowDebug;
+
 	extern cvar_t *r_lockpvs;
 	extern cvar_t *r_noportals;
 	extern cvar_t *r_max_portal_levels;
@@ -3404,6 +3416,7 @@ void GLimp_LogComment_( std::string comment );
 
 	void RB_RenderThread();
 	void RB_ExecuteRenderCommands( const void *data );
+	void RB_RenderShadowMaps();
 
 	/*
 	=============================================================
@@ -3659,5 +3672,8 @@ void GLimp_LogComment_( std::string comment );
 	void       RE_GlyphChar(fontInfo_t *font, int ch, glyphInfo_t *glyph);
 
 	void       R_SetAltShaderTokens( const char * );
+
+// Include shadow mapping after all types are defined
+#include "tr_shadowmap.h"
 
 #endif // TR_LOCAL_H
