@@ -299,7 +299,10 @@ void RE_AddDynamicLightToSceneET( const vec3_t org, float radius, float intensit
 
 	if ( flags & REF_INVERSE_DLIGHT )
 	{
-		Log::Warn( "REF_INVERSE_DLIGHT not implemtented" );
+		// REF_INVERSE_DLIGHT lights are shadow-only lights from cgame
+		// They should only be used for shadow map generation, not regular lighting
+		// TODO: In Phase 2, use these lights exclusively for shadow map rendering
+		// For now, skip them to prevent extra brightness
 		return;
 	}
 
@@ -346,7 +349,7 @@ static void RE_RenderCubeProbeFace( const refdef_t* originalRefdef ) {
 		Log::Warn( "Cube probe face out of range! (%i/%i)", probeID, tr.cubeProbes.size() );
 		return;
 	}
-	
+
 	refdef_t refdef{};
 	const int faceID = globalID % 6;
 

@@ -25,6 +25,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #insert common
 #insert computeLight_fp
 #insert reliefMapping_fp
+// TODO: Re-enable when shadow map rendering is implemented
+// #insert shadowMapping
 
 #define LIGHTMAPPING_GLSL
 
