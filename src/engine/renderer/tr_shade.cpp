@@ -26,6 +26,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "Material.h"
 #include "ShadeCommon.h"
 #include "GLUtils.h"
+#include "tr_shadowmap.h"
 
 /*
 =================================================================================
@@ -380,13 +381,12 @@ static void GLSL_InitGPUShadersOrError()
 		gl_fxaaShader->MarkProgramForBuilding( 0 );
 	}
 
-	// TODO: Re-enable shadow depth shader when shadow rendering is implemented
 	// Load shadow depth shader if shadow mapping is enabled
-	// if ( r_materialSystem.Get() && r_shadows.Get() >= Util::ordinal(shadowingMode_t::SHADOWING_ESM16) )
-	// {
-	//	gl_shaderManager.LoadShader( gl_shadowDepthShader );
-	//	gl_shadowDepthShader->MarkProgramForBuilding( 0 );
-	// }
+	if ( r_materialSystem.Get() && r_shadows.Get() >= Util::ordinal(shadowingMode_t::SHADOWING_ESM16) )
+	{
+		gl_shaderManager.LoadShader( gl_shadowDepthShader );
+		gl_shadowDepthShader->MarkProgramForBuilding( 0 );
+	}
 
 	gl_shaderManager.InitShaders();
 
@@ -502,6 +502,7 @@ void GLSL_ShutdownGPUShaders()
 	gl_depthtile2Shader = nullptr;
 	gl_lighttileShader = nullptr;
 	gl_fxaaShader = nullptr;
+	gl_shadowDepthShader = nullptr;
 
 	GL_BindNullProgram();
 }
@@ -829,6 +830,12 @@ void ProcessShaderLightMapping( const shaderStage_t* pStage ) {
 	gl_lightMappingShader->SetReflectiveSpecular( enableReflectiveSpecular );
 
 	gl_lightMappingShader->SetPhysicalShading( pStage->enablePhysicalMapping );
+	
+	// Enable shadow mapping if using material system and shadow mapping is enabled
+	if ( glConfig2.usingMaterialSystem && R_ShadowMappingEnabled() ) 
+	{
+		gl_lightMappingShaderMaterial->SetShadowMapping( true );
+	}
 }
 
 void ProcessShaderReflection( const shaderStage_t* pStage ) {
@@ -1233,6 +1240,57 @@ void Render_lightMapping( shaderStage_t *pStage )
 		gl_lightMappingShader->SetUniform_GlowMapBindless(
 			GL_BindToTMU( BIND_GLOWMAP, pStage->bundle[TB_GLOWMAP].image[0] )
 		);
+	}
+
+	// bind shadow mapping uniforms
+	if ( glConfig2.usingMaterialSystem && R_ShadowMappingEnabled() ) 
+	{
+		
+		// bind u_ShadowAtlas
+		image_t* shadowAtlas = shadowMapManager.GetShadowAtlas();
+		if ( shadowAtlas ) 
+		{
+			gl_lightMappingShaderMaterial->SetUniform_ShadowAtlas( GL_BindToTMU( BIND_SHADOWATLAS, shadowAtlas ) );
+		}
+		
+		// bind u_ShadowParams
+		vec4_t shadowParams;
+		shadowParams[0] = r_shadowBias.Get();           // bias
+		shadowParams[1] = r_shadowESMExponent.Get();    // ESM exponent  
+		shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
+		shadowParams[3] = 0.0f;                         // unused
+		gl_lightMappingShaderMaterial->SetUniform_ShadowParams( shadowParams );
+		
+		// bind u_ShadowMatrices
+		// TODO: Get actual shadow matrices from shadow map manager
+		// For now, set identity matrices to prevent shader errors
+		matrix_t identityMatrices[16];
+		for ( int i = 0; i < 16; i++ ) 
+		{
+			MatrixIdentity( identityMatrices[i] );
+		}
+		gl_lightMappingShaderMaterial->SetUniform_ShadowMatrices( identityMatrices, 16 );
+		
+		// bind u_ShadowLightInfo
+		// For now, set placeholder light info for ESM16
+		vec4_t shadowLightInfo[4];
+		for ( int i = 0; i < 4; i++ ) {
+			shadowLightInfo[i][0] = 2.0f; // technique: ESM16 
+			shadowLightInfo[i][1] = 1.0f; // numCascades
+			shadowLightInfo[i][2] = 0.0f; // atlasOffset.x
+			shadowLightInfo[i][3] = 0.0f; // atlasOffset.y  
+		}
+		gl_lightMappingShaderMaterial->SetUniform_ShadowLightInfo( shadowLightInfo, 4 );
+		
+		// bind u_CascadeSplits
+		vec4_t cascadeSplits[4];
+		for ( int i = 0; i < 4; i++ ) {
+			Vector4Set( cascadeSplits[i], 10.0f, 50.0f, 200.0f, 1000.0f );
+		}
+		gl_lightMappingShaderMaterial->SetUniform_CascadeSplits( cascadeSplits, 4 );
+		
+		// bind u_ShadowTechnique
+		gl_lightMappingShaderMaterial->SetUniform_ShadowTechnique( r_shadows.Get() );
 	}
 
 	if ( r_profilerRenderSubGroups.Get() && !( pStage->stateBits & GLS_DEPTHMASK_TRUE ) ) {
@@ -2036,6 +2094,55 @@ void Tess_StageIteratorPortal() {
 		}
 
 		Render_generic3D( pStage );
+	}
+}
+
+void Tess_StageIteratorShadowDepth()
+{
+	GLIMP_LOGCOMMENT( "--- Tess_StageIteratorShadowDepth( %i vertices, %i triangles ) ---",
+		tess.numVertexes, tess.numIndexes / 3 );
+
+	GL_CheckErrors();
+
+	// Apply any deformations if needed
+	if ( tess.surfaceShader && tess.surfaceShader->autoSpriteMode != 0 )
+	{
+		Tess_AutospriteDeform( tess.surfaceShader->autoSpriteMode );
+	}
+
+	// Update VBOs if necessary
+	if ( !glState.currentVBO || !glState.currentIBO || glState.currentVBO == tess.vbo || glState.currentIBO == tess.ibo )
+	{
+		Tess_UpdateVBOs();
+	}
+
+	// Set face culling for shadow rendering - typically front face culling to reduce shadow acne
+	GL_Cull( cullType_t::CT_FRONT_SIDED );
+
+	// Set vertex attributes needed for shadow depth rendering
+	GL_VertexAttribsState( ATTR_POSITION );
+
+	// Bind and configure shadowDepth shader
+	if ( gl_shadowDepthShader )
+	{
+		gl_shadowDepthShader->SetVertexSkinning( tess.vboVertexSkinning );
+		gl_shadowDepthShader->SetVertexAnimation( tess.vboVertexAnimation );
+		gl_shadowDepthShader->BindProgram( 0 );
+
+		// Set uniforms
+		gl_shadowDepthShader->SetUniform_ModelMatrix( backEnd.orientation.transformMatrix );
+		gl_shadowDepthShader->SetUniform_ModelViewProjectionMatrix( 
+			glState.modelViewProjectionMatrix[ glState.stackIndex ] );
+
+		// Set vertex pointers
+		gl_shadowDepthShader->SetRequiredVertexPointers();
+
+		// Draw the geometry
+		Tess_DrawElements();
+	}
+	else
+	{
+		Log::Warn("Shadow depth shader not available for shadow rendering");
 	}
 }
 

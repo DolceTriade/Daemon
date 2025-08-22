@@ -454,6 +454,7 @@ enum class ssaoMode {
 		BIND_ENVIRONMENTMAP1,
 		BIND_LIGHTTILES,
 		BIND_LIGHTS,
+		BIND_SHADOWATLAS,
 	};
 
 	enum
@@ -3186,6 +3187,7 @@ void GLimp_LogComment_( std::string comment );
 	void Tess_StageIteratorColor();
 	void Tess_StageIteratorPortal();
 	void Tess_StageIteratorSky();
+	void Tess_StageIteratorShadowDepth();
 
 	void Tess_AddQuadStamp( vec3_t origin, vec3_t left, vec3_t up, const Color::Color& color );
 	void Tess_AddQuadStampExt( vec3_t origin, vec3_t left, vec3_t up, const Color::Color& color, float s1, float t1, float s2, float t2 );

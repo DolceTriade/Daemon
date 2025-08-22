@@ -25,8 +25,6 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #insert common
 #insert computeLight_fp
 #insert reliefMapping_fp
-// TODO: Re-enable when shadow map rendering is implemented
-// #insert shadowMapping
 
 #define LIGHTMAPPING_GLSL
 
@@ -36,6 +34,8 @@ uniform sampler2D	u_GlowMap;
 
 uniform float		u_AlphaThreshold;
 uniform vec3		u_ViewOrigin;
+
+#insert shadowMapping
 
 uniform colorModulatePack u_ColorModulateColorGen;
 

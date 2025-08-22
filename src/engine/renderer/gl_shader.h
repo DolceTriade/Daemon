@@ -1184,6 +1184,7 @@ protected:
 	  LIGHT_DIRECTIONAL,
 	  USE_DEPTH_FADE,
 	  USE_PHYSICAL_MAPPING,
+	  USE_SHADOW_MAPPING,
 	};
 
 public:
@@ -1665,6 +1666,35 @@ public:
 	}
 
 	void SetPhysicalShading( bool enable )
+	{
+		SetMacro( enable );
+	}
+};
+
+class GLCompileMacro_USE_SHADOW_MAPPING :
+	GLCompileMacro
+{
+public:
+	GLCompileMacro_USE_SHADOW_MAPPING( GLShader *shader ) :
+		GLCompileMacro( shader )
+	{
+	}
+
+	const char *GetName() const override
+	{
+		return "USE_SHADOW_MAPPING";
+	}
+
+	EGLCompileMacro GetType() const override
+	{
+		return USE_SHADOW_MAPPING;
+	}
+
+	int GetShaderTypes() const override {
+		return ShaderType::FRAGMENT;
+	}
+
+	void SetShadowMapping( bool enable )
 	{
 		SetMacro( enable );
 	}
@@ -3257,6 +3287,51 @@ public:
 	}
 };
 
+class u_ShadowLightInfo :
+	GLUniform4fv
+{
+public:
+	u_ShadowLightInfo( GLShader *shader ) :
+		GLUniform4fv( shader, "u_ShadowLightInfo", 4 )
+	{
+	}
+
+	void SetUniform_ShadowLightInfo( vec4_t *data, int count )
+	{
+		this->SetValue( count, data );
+	}
+};
+
+class u_CascadeSplits :
+	GLUniform4fv
+{
+public:
+	u_CascadeSplits( GLShader *shader ) :
+		GLUniform4fv( shader, "u_CascadeSplits", 4 )
+	{
+	}
+
+	void SetUniform_CascadeSplits( vec4_t *splits, int count )
+	{
+		this->SetValue( count, splits );
+	}
+};
+
+class u_ShadowTechnique :
+	GLUniform1i
+{
+public:
+	u_ShadowTechnique( GLShader *shader ) :
+		GLUniform1i( shader, "u_ShadowTechnique" )
+	{
+	}
+
+	void SetUniform_ShadowTechnique( int technique )
+	{
+		this->SetValue( technique );
+	}
+};
+
 class GLShader_generic :
 	public GLShader,
 	public u_ColorMap,
@@ -3406,11 +3481,14 @@ class GLShader_lightMappingMaterial :
 	public GLCompileMacro_USE_HEIGHTMAP_IN_NORMALMAP,
 	public GLCompileMacro_USE_RELIEF_MAPPING,
 	public GLCompileMacro_USE_REFLECTIVE_SPECULAR,
-	public GLCompileMacro_USE_PHYSICAL_MAPPING {
-	// TODO: Re-enable shadow uniforms when shadow map rendering is implemented
-	// public u_ShadowAtlas,
-	// public u_ShadowParams,
-	// public u_ShadowMatrices {
+	public GLCompileMacro_USE_PHYSICAL_MAPPING,
+	public GLCompileMacro_USE_SHADOW_MAPPING,
+	public u_ShadowAtlas,
+	public u_ShadowParams,
+	public u_ShadowMatrices,
+	public u_ShadowLightInfo,
+	public u_CascadeSplits,
+	public u_ShadowTechnique {
 	public:
 	GLShader_lightMappingMaterial();
 };
