@@ -283,7 +283,7 @@ RE_AddDynamicLightToScene
 ydnar: modified dlight system to support separate radius and intensity
 =====================
 */
-void RE_AddDynamicLightToSceneET( const vec3_t org, float radius, float intensity, float r, float g, float b, qhandle_t, int flags )
+void RE_AddDynamicLightToSceneET( const vec3_t org, float radius, float intensity, float r, float g, float b, qhandle_t hShader, int flags )
 {
 	refLight_t *light;
 
@@ -300,9 +300,8 @@ void RE_AddDynamicLightToSceneET( const vec3_t org, float radius, float intensit
 	if ( flags & REF_INVERSE_DLIGHT )
 	{
 		// REF_INVERSE_DLIGHT lights are shadow-only lights from cgame
-		// They should only be used for shadow map generation, not regular lighting
-		// TODO: In Phase 2, use these lights exclusively for shadow map rendering
-		// For now, skip them to prevent extra brightness
+		// TODO: Implement shadow light processing properly without breaking dynamic lights
+		// For now, just skip them to prevent interference
 		return;
 	}
 

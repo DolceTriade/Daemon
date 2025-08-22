@@ -3821,10 +3821,11 @@ void RB_RenderShadowMaps()
 	// Begin shadow map generation
 	R_BeginShadowMapping();
 	
-	// TODO: For now, just do basic setup and early return
-	// This will be filled out as we implement the full pipeline
+	// Generate shadow maps for shadow-only lights
+	shadowMapManager.UpdateShadowMaps();
+	shadowMapManager.RenderShadowMaps();
 	
-	Log::Debug("Shadow map generation placeholder");
+	Log::Debug("Shadow map generation complete");
 	
 	// End shadow map generation  
 	R_EndShadowMapping();
