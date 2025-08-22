@@ -107,6 +107,10 @@ shadowingMode_t ShadowMapManager::GetShadowTechnique() const {
 	return static_cast<shadowingMode_t>(r_shadows.Get());
 }
 
+image_t* ShadowMapManager::GetShadowAtlas() const {
+	return shadowAtlas.colorImage;
+}
+
 void ShadowMapManager::InitAtlas() {
 	int atlasSize = r_shadowAtlasSize.Get();
 	
@@ -556,36 +560,117 @@ void ShadowMapManager::SetupShadowMapRendering(shadowMap_t* shadowMap) {
 }
 
 void ShadowMapManager::RenderShadowCasters(shadowMap_t* shadowMap) {
-	// TODO: Render shadow casting geometry using shadowDepth shader
-	// For now, just a placeholder that clears to specific colors for debugging
+	GLIMP_LOGCOMMENT( "--- ShadowMapManager::RenderShadowCasters ---" );
 	
 	shadowingMode_t technique = shadowMap->technique;
 	
-	// Clear with technique-specific debug color
-	switch ( technique ) {
-		case shadowingMode_t::SHADOWING_ESM16:
-			glClearColor( 0.8f, 0.0f, 0.0f, 1.0f ); // Red tint for ESM16
-			break;
-		case shadowingMode_t::SHADOWING_ESM32:
-			glClearColor( 0.0f, 0.8f, 0.0f, 1.0f ); // Green tint for ESM32
-			break;
-		case shadowingMode_t::SHADOWING_VSM16:
-			glClearColor( 0.0f, 0.0f, 0.8f, 1.0f ); // Blue tint for VSM16
-			break;
-		case shadowingMode_t::SHADOWING_VSM32:
-			glClearColor( 0.8f, 0.8f, 0.0f, 1.0f ); // Yellow tint for VSM32
-			break;
-		case shadowingMode_t::SHADOWING_EVSM32:
-			glClearColor( 0.8f, 0.0f, 0.8f, 1.0f ); // Magenta tint for EVSM32
-			break;
-		default:
-			glClearColor( 0.5f, 0.5f, 0.5f, 1.0f ); // Gray for unknown
-			break;
+	Log::Debug("Rendering shadow casters for technique %d", static_cast<int>(technique));
+	
+	// Save the current entity and surface shader states
+	trRefEntity_t *oldEntity = backEnd.currentEntity;
+	shader_t *oldShader = nullptr;
+	int oldLightmapNum = -1;
+	int oldFogNum = -1;
+	bool oldDepthRange = false;
+	bool depthRange = false;
+	
+	// For simplicity, render all opaque surfaces from the main view as shadow casters
+	// This is a simplified implementation - ideally we'd do light-space culling here
+	int firstSurf = backEnd.viewParms.firstDrawSurf[ Util::ordinal(shaderSort_t::SS_ENVIRONMENT_FOG) ];
+	int lastSurf = backEnd.viewParms.firstDrawSurf[ Util::ordinal(shaderSort_t::SS_OPAQUE) + 1 ];
+	
+	for ( int i = firstSurf; i < lastSurf; i++ ) {
+		drawSurf_t *drawSurf = &backEnd.viewParms.drawSurfs[ i ];
+		
+		// Skip invalid surfaces
+		if( drawSurf->surface == nullptr ) {
+			continue;
+		}
+		
+		// Get surface properties
+		trRefEntity_t *entity = drawSurf->entity;
+		shader_t *shader = drawSurf->shader;
+		int lightmapNum = drawSurf->lightmapNum();
+		int fogNum = drawSurf->fog;
+		
+		// For now, render all surfaces as potential shadow casters
+		// TODO: Add proper shadow casting flags/checks in the future
+		
+		// Skip translucent surfaces (sort is a float value)
+		if ( shader && shader->sort > Util::ordinal(shaderSort_t::SS_OPAQUE) ) {
+			continue;
+		}
+		
+		// Check if we need to switch shader/entity state
+		bool needNewBatch = ( shader != oldShader || entity != oldEntity || 
+		                     lightmapNum != oldLightmapNum || fogNum != oldFogNum );
+		
+		if ( needNewBatch ) {
+			// End current batch if any
+			if ( oldShader != nullptr ) {
+				Tess_End();
+			}
+			
+			// Start new batch with shadow depth stage iterator
+			Tess_Begin( Tess_StageIteratorShadowDepth, shader, false, lightmapNum, fogNum, drawSurf->bspSurface );
+			oldShader = shader;
+			oldLightmapNum = lightmapNum;
+			oldFogNum = fogNum;
+		}
+		
+		// Handle entity transformation
+		if ( entity != oldEntity ) {
+			depthRange = false;
+			
+			if ( entity != &tr.worldEntity ) {
+				backEnd.currentEntity = entity;
+				
+				// Set up the transformation matrix for this entity
+				R_RotateEntityForViewParms( backEnd.currentEntity, &backEnd.viewParms, &backEnd.orientation );
+				
+				if ( backEnd.currentEntity->e.renderfx & RF_DEPTHHACK ) {
+					depthRange = true;
+				}
+			} else {
+				backEnd.currentEntity = &tr.worldEntity;
+				backEnd.orientation = backEnd.viewParms.world;
+			}
+			
+			GL_LoadModelViewMatrix( backEnd.orientation.modelViewMatrix );
+			
+			// Handle depth range changes  
+			if ( oldDepthRange != depthRange ) {
+				if ( depthRange ) {
+					glDepthRange( 0, 0.3 );
+				} else {
+					glDepthRange( 0, 1 );
+				}
+				oldDepthRange = depthRange;
+			}
+			
+			oldEntity = entity;
+		}
+		
+		// Add the surface geometry to the tessellator
+		rb_surfaceTable[Util::ordinal(*drawSurf->surface)](drawSurf->surface);
 	}
 	
-	glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+	// End the final batch
+	if ( oldShader != nullptr ) {
+		Tess_End();
+	}
 	
-	Log::Debug("Shadow caster rendering placeholder for technique %d", static_cast<int>(technique));
+	// Restore world transformation
+	backEnd.currentEntity = &tr.worldEntity;
+	backEnd.orientation = backEnd.viewParms.world;
+	GL_LoadModelViewMatrix( backEnd.orientation.modelViewMatrix );
+	
+	// Reset depth range
+	if ( oldDepthRange ) {
+		glDepthRange( 0, 1 );
+	}
+	
+	Log::Debug("Shadow caster rendering complete for technique %d", static_cast<int>(technique));
 }
 
 // Light matrix calculation functions

@@ -145,6 +145,9 @@ public:
 	bool IsShadowMappingEnabled() const;
 	shadowingMode_t GetShadowTechnique() const;
 	
+	// Atlas access
+	image_t* GetShadowAtlas() const;
+	
 private:
 	shadowAtlas_t shadowAtlas;
 	lightShadowInfo_t lightShadows[MAX_SHADOW_LIGHTS];

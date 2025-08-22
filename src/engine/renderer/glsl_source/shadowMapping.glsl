@@ -28,8 +28,8 @@ uniform mat4 u_ShadowMatrices[16]; // lightIndex * 4 + cascadeIndex
 // Cascade splits for directional lights
 uniform vec4 u_CascadeSplits[4]; // Per light cascade splits
 
-// Light shadow info
-uniform ivec4 u_ShadowLightInfo[4]; // x: technique, y: numCascades, z: atlasOffset.x, w: atlasOffset.y
+// Light shadow info (using vec4 instead of ivec4 for compatibility)
+uniform vec4 u_ShadowLightInfo[4]; // x: technique, y: numCascades, z: atlasOffset.x, w: atlasOffset.y
 
 // Current technique being used
 uniform int u_ShadowTechnique;
@@ -189,23 +189,22 @@ int SelectShadowCascade(float viewDepth, int lightIndex) {
 
 // Main shadow calculation function
 float CalculateShadowFactor(vec3 worldPos, vec3 normal, int lightIndex) {
-	// For Phase 1 implementation - return no shadow until actual rendering is implemented
-	// This prevents the brightness issue while the foundation is being built
+	// For Phase 2 testing - return no shadow to ensure lighting works correctly
+	// TODO: Enable full shadow calculation once atlas rendering is confirmed working
 	return 1.0;
 	
-	/* TODO: Uncomment when shadow map rendering is implemented
+	/*
 	if (lightIndex < 0 || lightIndex >= 4) {
 		return 1.0; // No shadow
 	}
 	
-	ivec4 lightInfo = u_ShadowLightInfo[lightIndex];
-	int technique = lightInfo.x;
-	int numCascades = lightInfo.y;
+	vec4 lightInfo = u_ShadowLightInfo[lightIndex];
+	int technique = int(lightInfo.x);
+	int numCascades = int(lightInfo.y);
 	
 	if (technique == 0 || technique == 1) { // NONE or BLOB
 		return 1.0; // No shadow mapping
 	}
-	*/
 	
 	// Calculate view-space depth for cascade selection
 	float viewDepth = length(worldPos - u_ViewOrigin);
@@ -234,7 +233,7 @@ float CalculateShadowFactor(vec3 worldPos, vec3 normal, int lightIndex) {
 	}
 	
 	// Offset into atlas based on light's atlas region
-	vec2 atlasOffset = vec2(float(lightInfo.z), float(lightInfo.w)) / vec2(4096.0); // TODO: Use actual atlas size
+	vec2 atlasOffset = vec2(lightInfo.z, lightInfo.w) / vec2(4096.0); // TODO: Use actual atlas size
 	vec2 atlasScale = vec2(2048.0) / vec2(4096.0); // TODO: Use actual shadow map size
 	shadowCoord.xy = shadowCoord.xy * atlasScale + atlasOffset;
 	
@@ -244,6 +243,7 @@ float CalculateShadowFactor(vec3 worldPos, vec3 normal, int lightIndex) {
 	vec2 shadowMapSize = vec2(2048.0); // TODO: Use actual shadow map size
 	
 	return SampleShadowPCF(u_ShadowAtlas, shadowCoord, pcfFilter, shadowMapSize, exponent);
+	*/
 }
 
 #endif // USE_SHADOW_MAPPING

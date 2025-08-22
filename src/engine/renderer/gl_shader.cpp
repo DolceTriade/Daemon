@@ -881,6 +881,10 @@ static bool IsUnusedPermutation( const char *compileMacros )
 		{
 			if ( !glConfig2.physicalMapping ) return true;
 		}
+		else if ( strcmp( token, "USE_SHADOW_MAPPING" ) == 0 )
+		{
+			if ( !R_ShadowMappingEnabled() ) return true;
+		}
 		else if ( strcmp( token, "USE_REFLECTIVE_SPECULAR" ) == 0 )
 		{
 			/* FIXME: add to the following test: && r_physicalMapping->integer == 0
@@ -2518,11 +2522,14 @@ GLShader_lightMappingMaterial::GLShader_lightMappingMaterial() :
 	GLCompileMacro_USE_HEIGHTMAP_IN_NORMALMAP( this ),
 	GLCompileMacro_USE_RELIEF_MAPPING( this ),
 	GLCompileMacro_USE_REFLECTIVE_SPECULAR( this ),
-	GLCompileMacro_USE_PHYSICAL_MAPPING( this ) {
-	// TODO: Re-enable shadow uniforms when shadow map rendering is implemented
-	// u_ShadowAtlas( this ),
-	// u_ShadowParams( this ),
-	// u_ShadowMatrices( this ) {
+	GLCompileMacro_USE_PHYSICAL_MAPPING( this ),
+	GLCompileMacro_USE_SHADOW_MAPPING( this ),
+	u_ShadowAtlas( this ),
+	u_ShadowParams( this ),
+	u_ShadowMatrices( this ),
+	u_ShadowLightInfo( this ),
+	u_CascadeSplits( this ),
+	u_ShadowTechnique( this ) {
 }
 
 GLShader_reflection::GLShader_reflection():
