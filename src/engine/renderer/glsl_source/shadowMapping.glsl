@@ -42,7 +42,7 @@ uniform int u_ShadowTechnique;
 float SampleShadowESM16(sampler2D shadowMap, vec3 shadowCoord, float exponent) {
 	float shadowDepth = texture(shadowMap, shadowCoord.xy).r;
 	float occluderDepth = shadowCoord.z;
-	
+
 	// ESM formula: exp(exponent * (shadowDepth - occluderDepth))
 	return clamp(exp(exponent * (shadowDepth - occluderDepth)), 0.0, 1.0);
 }
@@ -56,18 +56,18 @@ float SampleShadowESM32(sampler2D shadowMap, vec3 shadowCoord, float exponent) {
 float SampleShadowVSM(sampler2D shadowMap, vec3 shadowCoord) {
 	vec2 moments = texture(shadowMap, shadowCoord.xy).rg;
 	float depth = shadowCoord.z;
-	
+
 	// Basic VSM
 	if (depth <= moments.x) {
 		return 1.0;
 	}
-	
+
 	float variance = moments.y - (moments.x * moments.x);
 	variance = max(variance, 0.0001); // Prevent division by zero
-	
+
 	float d = depth - moments.x;
 	float pMax = variance / (variance + d * d);
-	
+
 	return pMax;
 }
 
@@ -75,16 +75,16 @@ float SampleShadowVSM(sampler2D shadowMap, vec3 shadowCoord) {
 float SampleShadowEVSM32(sampler2D shadowMap, vec3 shadowCoord, float exponent) {
 	vec2 exponents = texture(shadowMap, shadowCoord.xy).rg;
 	float depth = shadowCoord.z;
-	
+
 	// EVSM uses exponential moments
 	float expDepth = exp(exponent * depth);
 	float negExpDepth = exp(-exponent * depth);
-	
+
 	// Positive exponential
-	float posShadow = (expDepth <= exponents.x) ? 1.0 : 
-		(exponents.y - exponents.x * exponents.x) / 
+	float posShadow = (expDepth <= exponents.x) ? 1.0 :
+		(exponents.y - exponents.x * exponents.x) /
 		(exponents.y - exponents.x * exponents.x + (expDepth - exponents.x) * (expDepth - exponents.x));
-	
+
 	return clamp(posShadow, 0.0, 1.0);
 }
 
@@ -93,13 +93,13 @@ float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec
 	vec2 texelSize = 1.0 / shadowMapSize;
 	float shadow = 0.0;
 	int samples = 0;
-	
+
 	if (filterType == 0) {
 		// No PCF - single sample
 		switch (u_ShadowTechnique) {
 			case 2: // SHADOWING_ESM16
 				return SampleShadowESM16(shadowMap, shadowCoord, exponent);
-			case 3: // SHADOWING_ESM32  
+			case 3: // SHADOWING_ESM32
 				return SampleShadowESM32(shadowMap, shadowCoord, exponent);
 			case 4: // SHADOWING_VSM16
 			case 5: // SHADOWING_VSM32
@@ -115,7 +115,7 @@ float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec
 		for (int x = -1; x <= 0; x++) {
 			for (int y = -1; y <= 0; y++) {
 				vec3 sampleCoord = shadowCoord + vec3(float(x) * texelSize.x, float(y) * texelSize.y, 0.0);
-				
+
 				switch (u_ShadowTechnique) {
 					case 2: shadow += SampleShadowESM16(shadowMap, sampleCoord, exponent); break;
 					case 3: shadow += SampleShadowESM32(shadowMap, sampleCoord, exponent); break;
@@ -133,7 +133,7 @@ float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec
 		for (int x = -2; x <= 1; x++) {
 			for (int y = -2; y <= 1; y++) {
 				vec3 sampleCoord = shadowCoord + vec3(float(x) * texelSize.x, float(y) * texelSize.y, 0.0);
-				
+
 				switch (u_ShadowTechnique) {
 					case 2: shadow += SampleShadowESM16(shadowMap, sampleCoord, exponent); break;
 					case 3: shadow += SampleShadowESM32(shadowMap, sampleCoord, exponent); break;
@@ -158,10 +158,10 @@ float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec
 			vec2(-0.24188840, 0.99706507), vec2(-0.81409955, 0.91437590),
 			vec2(0.19984126, 0.78641367), vec2(0.14383161, -0.14100790)
 		);
-		
+
 		for (int i = 0; i < 16; i++) {
 			vec3 sampleCoord = shadowCoord + vec3(poissonDisk[i] * texelSize, 0.0);
-			
+
 			switch (u_ShadowTechnique) {
 				case 2: shadow += SampleShadowESM16(shadowMap, sampleCoord, exponent); break;
 				case 3: shadow += SampleShadowESM32(shadowMap, sampleCoord, exponent); break;
@@ -173,77 +173,71 @@ float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec
 			samples++;
 		}
 	}
-	
+
 	return (samples > 0) ? shadow / float(samples) : 1.0;
 }
 
 // Cascade selection for directional lights
 int SelectShadowCascade(float viewDepth, int lightIndex) {
 	vec4 splits = u_CascadeSplits[lightIndex];
-	
+
 	if (viewDepth < splits.x) return 0;
-	if (viewDepth < splits.y) return 1;  
+	if (viewDepth < splits.y) return 1;
 	if (viewDepth < splits.z) return 2;
 	return 3;
 }
 
 // Main shadow calculation function
 float CalculateShadowFactor(vec3 worldPos, vec3 normal, int lightIndex) {
-	// For Phase 2 testing - return no shadow to ensure lighting works correctly
-	// TODO: Enable full shadow calculation once atlas rendering is confirmed working
-	return 1.0;
-	
-	/*
 	if (lightIndex < 0 || lightIndex >= 4) {
 		return 1.0; // No shadow
 	}
-	
+
 	vec4 lightInfo = u_ShadowLightInfo[lightIndex];
 	int technique = int(lightInfo.x);
 	int numCascades = int(lightInfo.y);
-	
+
 	if (technique == 0 || technique == 1) { // NONE or BLOB
 		return 1.0; // No shadow mapping
 	}
-	
+
 	// Calculate view-space depth for cascade selection
 	float viewDepth = length(worldPos - u_ViewOrigin);
 	int cascadeIndex = (numCascades > 1) ? SelectShadowCascade(viewDepth, lightIndex) : 0;
-	
+
 	// Get shadow matrix
 	int matrixIndex = lightIndex * 4 + cascadeIndex;
 	mat4 shadowMatrix = u_ShadowMatrices[matrixIndex];
-	
+
 	// Transform world position to light space
 	vec4 lightSpacePos = shadowMatrix * vec4(worldPos, 1.0);
 	vec3 shadowCoord = lightSpacePos.xyz / lightSpacePos.w;
-	
+
 	// Transform to [0,1] range
 	shadowCoord = shadowCoord * 0.5 + 0.5;
-	
+
 	// Apply shadow bias based on surface normal and light direction
 	float bias = u_ShadowParams.x;
 	shadowCoord.z -= bias;
-	
+
 	// Check if we're outside the shadow map
-	if (shadowCoord.x < 0.0 || shadowCoord.x > 1.0 || 
-	    shadowCoord.y < 0.0 || shadowCoord.y > 1.0 || 
+	if (shadowCoord.x < 0.0 || shadowCoord.x > 1.0 ||
+	    shadowCoord.y < 0.0 || shadowCoord.y > 1.0 ||
 	    shadowCoord.z < 0.0 || shadowCoord.z > 1.0) {
 		return 1.0; // Outside shadow map, fully lit
 	}
-	
+
 	// Offset into atlas based on light's atlas region
 	vec2 atlasOffset = vec2(lightInfo.z, lightInfo.w) / vec2(4096.0); // TODO: Use actual atlas size
 	vec2 atlasScale = vec2(2048.0) / vec2(4096.0); // TODO: Use actual shadow map size
 	shadowCoord.xy = shadowCoord.xy * atlasScale + atlasOffset;
-	
+
 	// Sample shadow map with PCF
 	float exponent = u_ShadowParams.y;
 	int pcfFilter = int(u_ShadowParams.z);
 	vec2 shadowMapSize = vec2(2048.0); // TODO: Use actual shadow map size
-	
+
 	return SampleShadowPCF(u_ShadowAtlas, shadowCoord, pcfFilter, shadowMapSize, exponent);
-	*/
 }
 
 #endif // USE_SHADOW_MAPPING

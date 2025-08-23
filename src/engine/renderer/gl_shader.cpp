@@ -1634,7 +1634,7 @@ std::string GLShaderManager::ShaderPostProcess( GLShader *shader, const std::str
 	*   ..
 	*   type uniformn;
 	* }
-	* 
+	*
 	* #define uniformx materials[baseInstance].uniformx
 	*/
 
@@ -2504,6 +2504,12 @@ GLShader_lightMappingMaterial::GLShader_lightMappingMaterial() :
 	u_MaterialColour( this ),
 	u_ProfilerZero( this ),
 	u_ProfilerRenderSubGroups( this ),
+	u_ShadowAtlas( this ),
+	u_ShadowParams( this ),
+	u_ShadowMatrices( this ),
+	u_ShadowLightInfo( this ),
+	u_CascadeSplits( this ),
+	u_ShadowTechnique( this ),
 	GLDeformStage( this ),
 	GLCompileMacro_USE_BSP_SURFACE( this ),
 	GLCompileMacro_USE_DELUXE_MAPPING( this ),
@@ -2513,13 +2519,7 @@ GLShader_lightMappingMaterial::GLShader_lightMappingMaterial() :
 	GLCompileMacro_USE_RELIEF_MAPPING( this ),
 	GLCompileMacro_USE_REFLECTIVE_SPECULAR( this ),
 	GLCompileMacro_USE_PHYSICAL_MAPPING( this ),
-	GLCompileMacro_USE_SHADOW_MAPPING( this ),
-	u_ShadowAtlas( this ),
-	u_ShadowParams( this ),
-	u_ShadowMatrices( this ),
-	u_ShadowLightInfo( this ),
-	u_CascadeSplits( this ),
-	u_ShadowTechnique( this ) {
+	GLCompileMacro_USE_SHADOW_MAPPING( this ) {
 }
 
 GLShader_reflection::GLShader_reflection():
