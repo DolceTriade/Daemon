@@ -741,7 +741,7 @@ public:
 		memcpy( buffer, &currentValue, sizeof( float ) );
 		return buffer + _std430Size;
 	}
-	
+
 	private:
 	float currentValue = 0;
 };
@@ -3264,9 +3264,9 @@ public:
 	{
 	}
 
-	void SetUniform_ShadowAtlas( int value )
+	void SetUniform_ShadowAtlasBindless( GLuint64 value )
 	{
-		this->SetValue( value );
+		this->SetValueBindless( value );
 	}
 };
 
@@ -3486,6 +3486,12 @@ class GLShader_lightMappingMaterial :
 	public u_MaterialColour,
 	public u_ProfilerZero,
 	public u_ProfilerRenderSubGroups,
+	public u_ShadowAtlas,
+	public u_ShadowParams,
+	public u_ShadowMatrices,
+	public u_ShadowLightInfo,
+	public u_CascadeSplits,
+	public u_ShadowTechnique,
 	public GLDeformStage,
 	public GLCompileMacro_USE_BSP_SURFACE,
 	public GLCompileMacro_USE_DELUXE_MAPPING,
@@ -3495,13 +3501,7 @@ class GLShader_lightMappingMaterial :
 	public GLCompileMacro_USE_RELIEF_MAPPING,
 	public GLCompileMacro_USE_REFLECTIVE_SPECULAR,
 	public GLCompileMacro_USE_PHYSICAL_MAPPING,
-	public GLCompileMacro_USE_SHADOW_MAPPING,
-	public u_ShadowAtlas,
-	public u_ShadowParams,
-	public u_ShadowMatrices,
-	public u_ShadowLightInfo,
-	public u_CascadeSplits,
-	public u_ShadowTechnique {
+	public GLCompileMacro_USE_SHADOW_MAPPING {
 	public:
 	GLShader_lightMappingMaterial();
 };

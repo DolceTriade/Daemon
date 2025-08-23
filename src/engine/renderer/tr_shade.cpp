@@ -187,7 +187,7 @@ static void EnableAvailableFeatures()
 	glConfig2.usingGeometryCache = glConfig2.usingMaterialSystem && glConfig2.geometryCacheAvailable;
 }
 
-// For shaders that require map data for compile-time values 
+// For shaders that require map data for compile-time values
 void GLSL_InitWorldShaders() {
 	// make sure the render thread is stopped
 	R_SyncRenderThread();
@@ -331,7 +331,7 @@ static void GLSL_InitGPUShadersOrError()
 
 		gl_contrastShader->MarkProgramForBuilding( 0 );
 	}
-	
+
 	// portal process effect
 	gl_shaderManager.LoadShader( gl_portalShader );
 
@@ -382,7 +382,7 @@ static void GLSL_InitGPUShadersOrError()
 	}
 
 	// Load shadow depth shader if shadow mapping is enabled
-	if ( r_materialSystem.Get() && r_shadows.Get() >= Util::ordinal(shadowingMode_t::SHADOWING_ESM16) )
+	if ( glConfig2.usingMaterialSystem && r_shadows.Get() >= Util::ordinal(shadowingMode_t::SHADOWING_ESM16) )
 	{
 		gl_shaderManager.LoadShader( gl_shadowDepthShader );
 		gl_shadowDepthShader->MarkProgramForBuilding( 0 );
@@ -830,9 +830,9 @@ void ProcessShaderLightMapping( const shaderStage_t* pStage ) {
 	gl_lightMappingShader->SetReflectiveSpecular( enableReflectiveSpecular );
 
 	gl_lightMappingShader->SetPhysicalShading( pStage->enablePhysicalMapping );
-	
+
 	// Enable shadow mapping if using material system and shadow mapping is enabled
-	if ( glConfig2.usingMaterialSystem && R_ShadowMappingEnabled() ) 
+	if ( glConfig2.usingMaterialSystem && R_ShadowMappingEnabled() )
 	{
 		gl_lightMappingShaderMaterial->SetShadowMapping( true );
 	}
@@ -1243,52 +1243,52 @@ void Render_lightMapping( shaderStage_t *pStage )
 	}
 
 	// bind shadow mapping uniforms
-	if ( glConfig2.usingMaterialSystem && R_ShadowMappingEnabled() ) 
+	if ( glConfig2.usingMaterialSystem && R_ShadowMappingEnabled() )
 	{
-		
+
 		// bind u_ShadowAtlas
 		image_t* shadowAtlas = shadowMapManager.GetShadowAtlas();
-		if ( shadowAtlas ) 
+		if ( shadowAtlas )
 		{
-			gl_lightMappingShaderMaterial->SetUniform_ShadowAtlas( GL_BindToTMU( BIND_SHADOWATLAS, shadowAtlas ) );
+			//gl_lightMappingShaderMaterial->SetUniform_ShadowAtlasBindless( GL_BindToTMU( BIND_SHADOWATLAS, shadowAtlas ) );
 		}
-		
+
 		// bind u_ShadowParams
 		vec4_t shadowParams;
 		shadowParams[0] = r_shadowBias.Get();           // bias
-		shadowParams[1] = r_shadowESMExponent.Get();    // ESM exponent  
+		shadowParams[1] = r_shadowESMExponent.Get();    // ESM exponent
 		shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
 		shadowParams[3] = 0.0f;                         // unused
 		gl_lightMappingShaderMaterial->SetUniform_ShadowParams( shadowParams );
-		
+
 		// bind u_ShadowMatrices
 		// TODO: Get actual shadow matrices from shadow map manager
 		// For now, set identity matrices to prevent shader errors
 		matrix_t identityMatrices[16];
-		for ( int i = 0; i < 16; i++ ) 
+		for ( int i = 0; i < 16; i++ )
 		{
 			MatrixIdentity( identityMatrices[i] );
 		}
 		gl_lightMappingShaderMaterial->SetUniform_ShadowMatrices( identityMatrices, 16 );
-		
+
 		// bind u_ShadowLightInfo
 		// For now, set placeholder light info for ESM16
 		vec4_t shadowLightInfo[4];
 		for ( int i = 0; i < 4; i++ ) {
-			shadowLightInfo[i][0] = 2.0f; // technique: ESM16 
+			shadowLightInfo[i][0] = 2.0f; // technique: ESM16
 			shadowLightInfo[i][1] = 1.0f; // numCascades
 			shadowLightInfo[i][2] = 0.0f; // atlasOffset.x
-			shadowLightInfo[i][3] = 0.0f; // atlasOffset.y  
+			shadowLightInfo[i][3] = 0.0f; // atlasOffset.y
 		}
 		gl_lightMappingShaderMaterial->SetUniform_ShadowLightInfo( shadowLightInfo, 4 );
-		
+
 		// bind u_CascadeSplits
 		vec4_t cascadeSplits[4];
 		for ( int i = 0; i < 4; i++ ) {
 			Vector4Set( cascadeSplits[i], 10.0f, 50.0f, 200.0f, 1000.0f );
 		}
 		gl_lightMappingShaderMaterial->SetUniform_CascadeSplits( cascadeSplits, 4 );
-		
+
 		// bind u_ShadowTechnique
 		gl_lightMappingShaderMaterial->SetUniform_ShadowTechnique( r_shadows.Get() );
 	}
@@ -1521,7 +1521,7 @@ void Render_heatHaze( shaderStage_t *pStage )
 
 	// bind u_NormalMap
 	gl_heatHazeShader->SetUniform_NormalMapBindless(
-		GL_BindToTMU( 0, pStage->bundle[TB_NORMALMAP].image[0] ) 
+		GL_BindToTMU( 0, pStage->bundle[TB_NORMALMAP].image[0] )
 	);
 
 	if ( pStage->enableNormalMapping )
@@ -1537,7 +1537,7 @@ void Render_heatHaze( shaderStage_t *pStage )
 
 	// bind u_CurrentMap
 	gl_heatHazeShader->SetUniform_CurrentMapBindless(
-		GL_BindToTMU( 1, tr.currentRenderImage[backEnd.currentMainFBO] ) 
+		GL_BindToTMU( 1, tr.currentRenderImage[backEnd.currentMainFBO] )
 	);
 
 	gl_heatHazeShader->SetRequiredVertexPointers();
@@ -1547,7 +1547,7 @@ void Render_heatHaze( shaderStage_t *pStage )
 	// copy to foreground image
 	R_BindFBO( tr.mainFBO[ backEnd.currentMainFBO ] );
 	gl_heatHazeShader->SetUniform_CurrentMapBindless(
-		GL_BindToTMU( 1, tr.currentRenderImage[1 - backEnd.currentMainFBO] ) 
+		GL_BindToTMU( 1, tr.currentRenderImage[1 - backEnd.currentMainFBO] )
 	);
 	gl_heatHazeShader->SetUniform_DeformMagnitude( 0.0f );
 	Tess_DrawElements();
@@ -1730,7 +1730,7 @@ void Render_fog( shaderStage_t* pStage )
 
 	// bind u_ColorMap
 	gl_fogQuake3Shader->SetUniform_FogMapBindless(
-		GL_BindToTMU( 0, tr.fogImage ) 
+		GL_BindToTMU( 0, tr.fogImage )
 	);
 
 	gl_fogQuake3Shader->SetRequiredVertexPointers();
@@ -2131,7 +2131,7 @@ void Tess_StageIteratorShadowDepth()
 
 		// Set uniforms
 		gl_shadowDepthShader->SetUniform_ModelMatrix( backEnd.orientation.transformMatrix );
-		gl_shadowDepthShader->SetUniform_ModelViewProjectionMatrix( 
+		gl_shadowDepthShader->SetUniform_ModelViewProjectionMatrix(
 			glState.modelViewProjectionMatrix[ glState.stackIndex ] );
 
 		// Set vertex pointers
