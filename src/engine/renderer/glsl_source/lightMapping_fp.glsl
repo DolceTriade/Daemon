@@ -23,6 +23,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 /* lightMapping_fp.glsl */
 
 #insert common
+#insert shadowMapping
 #insert computeLight_fp
 #insert reliefMapping_fp
 
@@ -34,8 +35,6 @@ uniform sampler2D	u_GlowMap;
 
 uniform float		u_AlphaThreshold;
 uniform vec3		u_ViewOrigin;
-
-#insert shadowMapping
 
 uniform colorModulatePack u_ColorModulateColorGen;
 
@@ -145,7 +144,7 @@ void main()
 		vec4 texel = texture3D(u_LightGrid2, lightGridPos);
 		vec3 lightDir = normalize(texel.xyz - (128.0 / 255.0));
 	#endif
-	
+
 	float lightFactor = ColorModulateToLightFactor( u_ColorModulateColorGen );
 	#if defined(USE_LIGHT_MAPPING)
 		// Compute light color from world space lightmap.
@@ -219,7 +218,7 @@ void main()
 
 		color.rgb += glow;
 	#endif
-	
+
 	SHADER_PROFILER_SET( color )
 
 	outputColor = color;

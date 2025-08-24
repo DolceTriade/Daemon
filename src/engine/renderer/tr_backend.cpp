@@ -3818,9 +3818,6 @@ void RB_RenderShadowMaps()
 		return;
 	}
 
-	// Begin shadow map generation
-	R_BeginShadowMapping();
-
 	// Generate shadow maps for shadow-only lights
 	shadowMapManager.UpdateShadowMaps();
 	shadowMapManager.RenderShadowMaps();

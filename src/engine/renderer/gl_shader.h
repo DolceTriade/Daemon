@@ -3264,9 +3264,9 @@ public:
 	{
 	}
 
-	void SetUniform_ShadowAtlasBindless( GLuint64 value )
+	void SetUniform_ShadowAtlas( GLuint64 value )
 	{
-		this->SetValueBindless( value );
+		this->SetValue( value );
 	}
 };
 
@@ -3305,7 +3305,7 @@ class u_ShadowLightInfo :
 {
 public:
 	u_ShadowLightInfo( GLShader *shader ) :
-		GLUniform4fv( shader, "u_ShadowLightInfo", 4 )
+		GLUniform4fv( shader, "u_ShadowLightInfo", 16 )
 	{
 	}
 
@@ -3320,7 +3320,7 @@ class u_CascadeSplits :
 {
 public:
 	u_CascadeSplits( GLShader *shader ) :
-		GLUniform4fv( shader, "u_CascadeSplits", 4 )
+		GLUniform4fv( shader, "u_CascadeSplits", 16 )
 	{
 	}
 
@@ -3504,6 +3504,7 @@ class GLShader_lightMappingMaterial :
 	public GLCompileMacro_USE_SHADOW_MAPPING {
 	public:
 	GLShader_lightMappingMaterial();
+	void SetShaderProgramUniforms( ShaderProgramDescriptor *shaderProgram ) override;
 };
 
 class GLShader_reflection :

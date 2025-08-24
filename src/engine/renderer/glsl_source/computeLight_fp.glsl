@@ -198,8 +198,13 @@ void computeDynamicLight( uint idx, vec3 P, vec3 normal, vec3 viewDir, vec4 diff
 		attenuation = 1.0;
 	}
 
+#if 0 //defined(USE_SHADOW_MAPPING)
+	float shadowFactor = CalculateShadowFactor(P, viewDir, normal, int(idx)); // P and normal are worldPos and normal, idx is lightIndex
+#else
+	float shadowFactor = 1.0;
+#endif  // defined(USE_SHADOW_MAPPING)
 	computeDeluxeLight(
-		L, normal, viewDir, attenuation * attenuation * light.color,
+		L, normal, viewDir, attenuation * attenuation * light.color * shadowFactor, // Apply shadow factor
 		diffuse, material, color );
 }
 
