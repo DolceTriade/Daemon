@@ -36,109 +36,40 @@ below.
 // Forward declarations
 struct refLight_t;
 struct viewParms_t;
-struct image_t;
-struct FBO_t;
+// image_t and FBO_t are now in tr_local.h
+#include <vector> // For std::vector
 
-// Maximum number of shadow-casting lights
-#define MAX_SHADOW_LIGHTS 8
-#define MAX_SHADOW_CASCADES 4
-
-// Shadow map atlas region allocation
-struct atlasRegion_t {
-	int offset[2];
-	int size[2];
-	bool allocated;
-	int lightIndex;
-	int cascadeIndex;
-};
-
-// Shadow map data for a single light/cascade
-struct shadowMap_t {
-	shadowingMode_t technique;
-	int atlasOffset[2];
-	int size[2];
-	int cascadeIndex;
-	int lightIndex;
-
-	// Technique-specific parameters
-	union {
-		struct {
-			float exponent;
-		} esm;
-		struct {
-			float minVariance;
-			float blurRadius;
-		} vsm;
-		struct {
-			float exponent;
-			float minVariance;
-		} evsm;
-	} params;
-
-	// Light space matrices
-	matrix_t lightViewMatrix;
-	matrix_t lightProjectionMatrix;
-	matrix_t lightViewProjectionMatrix;
-	frustum_t lightFrustum;
-
-	// Cascade data (for directional lights)
-	float cascadeSplit;
-	vec3_t cascadeBounds[2];
-};
-
-// Shadow atlas containing all shadow maps
-struct shadowAtlas_t {
-	// Atlas textures
-	image_t* colorImage;      // For VSM/EVSM (RG format)
-	image_t* depthImage;      // Depth buffer
-	FBO_t* fbo;
-
-	// Atlas properties
-	int size;
-	int maxRegions;
-
-	// Region allocation
-	std::vector<atlasRegion_t> regions;
-	int allocatedRegions;
-};
-
-// Per-light shadow information
-struct lightShadowInfo_t {
-	bool castsShadows;
-	int numCascades;
-	shadowMap_t cascades[MAX_SHADOW_CASCADES];
-	float cascadeSplits[MAX_SHADOW_CASCADES];
-};
+// Include tr_local.h for common renderer structures and shadow mapping structs
+#include "tr_local.h"
 
 class ShadowMapManager {
 public:
 	// Initialization
-	void Init();
-	void Shutdown();
+	void Init(shadowData_t *sd);
+	void Shutdown(shadowData_t *sd);
 	void BeginFrame();
 	void EndFrame();
 
 	// Shadow light management
-	void AddShadowLight( const vec3_t org, float radius, float intensity, float r, float g, float b, qhandle_t hShader, int flags );
+	void AddShadowLight(const vec3_t org, float radius, float intensity, float r, float g, float b, qhandle_t hShader, int flags );
 
 	// Shadow map management
-	shadowMap_t* AllocateShadowMap(refLight_t* light, int cascade = -1);
-	void FreeShadowMap(shadowMap_t* shadowMap);
+	// AllocateShadowMap and FreeShadowMap are removed as per previous discussion
 	void UpdateShadowMaps();
 
 	// Atlas management
-	void ResizeAtlas(int newSize);
-	bool AllocateAtlasRegion(int width, int height, int* offset, int lightIndex, int cascade);
-	void FreeAtlasRegion(const int* offset);
+	void ResizeAtlas(shadowAtlas_t* atlas, int newSize);
+	bool AllocateAtlasRegion(shadowAtlas_t* atlas, int width, int height, vec2_t offset, int lightIndex, int cascade);
+	void FreeAtlasRegion(shadowAtlas_t* atlas, const vec2_t* offset);
 
 	// Rendering
 	void RenderShadowMaps();
-	void SetupShadowMapRendering(shadowMap_t* shadowMap);
-	void RenderShadowCasters(shadowMap_t* shadowMap);
+	void SetupShadowMapRendering(shadowAtlas_t* atlas, shadowMap_t* shadowMap);
+	void RenderShadowCasters(shadowAtlas_t* atlas, shadowMap_t* shadowMap);
 	void FinishShadowMapRendering();
 
 	// Light management
-	void SetupLightShadows(refLight_t* light);
+	bool SetupLightShadows(refLight_t* light);
 	void UpdateCascadeSplits(lightShadowInfo_t* lightShadow, const viewParms_t* viewParms);
 
 	// Utility
@@ -146,21 +77,20 @@ public:
 	shadowingMode_t GetShadowTechnique() const;
 
 	// Atlas access
-	image_t* GetShadowAtlas() const;
+	image_t* GetShadowAtlas(const shadowAtlas_t* atlas) const;
 
 private:
-	shadowAtlas_t shadowAtlas;
-	lightShadowInfo_t lightShadows[MAX_SHADOW_LIGHTS];
-	int numShadowLights;
-
-	// Shadow-only lights from cgame (REF_INVERSE_DLIGHT)
-	refLight_t shadowOnlyLights[MAX_SHADOW_LIGHTS];
-	int numShadowOnlyLights;
+	// These members are now part of shadowData_t
+	// shadowAtlas_t shadowAtlas;
+	// lightShadowInfo_t lightShadows[MAX_SHADOW_LIGHTS];
+	// int numShadowLights;
+	// refLight_t shadowOnlyLights[MAX_SHADOW_LIGHTS];
+	// int numShadowOnlyLights;
 
 	// Internal methods
-	void InitAtlas();
-	void ShutdownAtlas();
-	void CreateShadowMapFBO();
+	void InitAtlas(shadowAtlas_t* atlas);
+	void ShutdownAtlas(shadowAtlas_t* atlas);
+	void CreateShadowMapFBO(shadowAtlas_t* atlas);
 	void SetupLightMatrix(refLight_t* light, shadowMap_t* shadowMap, const vec3_t* bounds = nullptr);
 	void CalculateCascadeBounds(const viewParms_t* viewParms, float nearSplit, float farSplit, vec3_t bounds[2]);
 

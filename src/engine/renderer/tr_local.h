@@ -193,6 +193,10 @@ static inline void halfToFloat( const f16vec4_t in, vec4_t out )
 #define MAX_DRAWSURFS      0x10000
 #define DRAWSURF_MASK      ( MAX_DRAWSURFS - 1 )
 
+#define MAX_SHADOW_LIGHTS 8
+#define MAX_SHADOW_CASCADES 4
+#define MAX_SHADOW_REGIONS MAX_SHADOW_LIGHTS * MAX_SHADOW_CASCADES
+
 // 16x16 pixels per tile
 #define TILE_SHIFT 4
 #define TILE_SIZE  (1 << TILE_SHIFT)
@@ -2387,6 +2391,79 @@ enum
 	using floatProcessor_t = float(*)(float);
 	using colorProcessor_t = Color::Color(*)(Color::Color);
 
+	// Shadow mapping related structs
+struct atlasRegion_t {
+    vec2_t offset;
+    vec2_t size;
+    bool allocated;
+    int lightIndex;
+    int cascadeIndex;
+};
+
+struct shadowMap_t {
+    shadowingMode_t technique;
+    vec2_t atlasOffset;
+    vec2_t size;
+    int cascadeIndex;
+    int lightIndex;
+
+    // Technique-specific parameters
+    union {
+        struct {
+            float exponent;
+        } esm;
+        struct {
+            float minVariance;
+            float blurRadius;
+        } vsm;
+        struct {
+            float exponent;
+            float minVariance;
+        } evsm;
+    } params;
+
+    // Light space matrices
+    matrix_t lightViewMatrix;
+    matrix_t lightProjectionMatrix;
+    matrix_t lightViewProjectionMatrix;
+    frustum_t lightFrustum;
+
+    // Cascade data (for directional lights)
+    float cascadeSplit;
+    vec3_t cascadeBounds[2];
+};
+
+struct shadowAtlas_t {
+    // Atlas textures
+    image_t* colorImage;      // For VSM/EVSM (RG format)
+    image_t* depthImage;      // Depth buffer
+    FBO_t* fbo;
+
+    // Atlas properties
+    int size;
+
+    // Region allocation
+    atlasRegion_t regions[MAX_SHADOW_REGIONS];
+    int allocatedRegions;
+};
+
+struct lightShadowInfo_t {
+    bool castsShadows;
+    int numCascades;
+    shadowMap_t cascades[MAX_SHADOW_CASCADES];
+    float cascadeSplits[MAX_SHADOW_CASCADES];
+};
+
+// Encapsulates all frame-dependent shadow mapping data
+struct shadowData_t {
+    shadowAtlas_t shadowAtlas;
+    lightShadowInfo_t lightShadows[MAX_SHADOW_LIGHTS];
+    int numShadowLights;
+    refLight_t shadowOnlyLights[MAX_SHADOW_LIGHTS];
+    int numShadowOnlyLights;
+};
+
+
 	/*
 	** trGlobals_t
 	**
@@ -3605,6 +3682,8 @@ void GLimp_LogComment_( std::string comment );
 		int                 traversalLength;
 
 		renderCommandList_t commands;
+
+		shadowData_t shadowData;
 	};
 
 	extern backEndData_t                *backEndData[ SMP_FRAMES ]; // the second one may not be allocated
