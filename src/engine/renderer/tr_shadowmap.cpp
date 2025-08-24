@@ -88,8 +88,6 @@ void ShadowMapManager::EndFrame() {
 		return;
 	}
 	shadowData_t *sd = &backEndData[backEnd.smpFrame]->shadowData;
-	// Reset shadow-only lights at end of frame, after rendering is complete
-	sd->numShadowOnlyLights = 0;
 }
 
 bool ShadowMapManager::IsShadowMappingEnabled() const {
@@ -409,18 +407,16 @@ void ShadowMapManager::AddShadowLight(const vec3_t org, float radius, float inte
 
 void ShadowMapManager::UpdateShadowMaps() {
 	shadowData_t *sd = &backEndData[backEnd.smpFrame]->shadowData;
-	// Set up shadow maps for all collected shadow-only lights
-	sd->numShadowLights = 0; // Reset before setting up
-
-	for (int i = 0; i < sd->numShadowOnlyLights && i < r_shadowLights.Get(); i++) {
+	for (int i = 0; i < sd->numShadowOnlyLights && sd->numShadowLights < r_shadowLights.Get(); i++) {
 		refLight_t* light = &sd->shadowOnlyLights[i];
-		if (SetupLightShadows(light)) { // Pass sd and current numShadowLights as lightIndex
+		if (!SetupLightShadows(light)) { // Pass sd and current numShadowLights as lightIndex
 			sd->numShadowLights++; // Increment only if setup was successful
 		}
 	}
 
 	Log::Debug("Updated shadow maps for %d shadow lights (%d shadow-only lights collected)",
 	          sd->numShadowLights, sd->numShadowOnlyLights);
+	sd->numShadowOnlyLights = 0;
 }
 
 void ShadowMapManager::RenderShadowMaps() {
@@ -435,6 +431,7 @@ void ShadowMapManager::RenderShadowMaps() {
 	}
 
 	// Bind shadow atlas FBO for rendering
+	FBO_t *old = glState.currentFBO;
 	R_BindFBO(sd->shadowAtlas.fbo);
 
 	// Clear the entire shadow atlas
@@ -470,7 +467,7 @@ void ShadowMapManager::RenderShadowMaps() {
 
 	// Restore viewport and FBO
 	glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
-	R_BindNullFBO();
+	R_BindFBO(old);
 
 	Log::Debug("Shadow atlas rendering complete for %d lights", sd->numShadowLights);
 }

@@ -800,6 +800,11 @@ static std::string GenEngineConstants() {
 		AddDefine( str, "r_highPrecisionRendering", 1 );
 	}
 
+	if ( R_ShadowMappingEnabled() ) {
+		AddDefine( str, "r_shadowMapSize", r_shadowMapSize.Get() );
+		AddDefine( str, "r_shadowAtlasSize", r_shadowAtlasSize.Get() );
+	}
+
 	return str;
 }
 
@@ -2520,6 +2525,11 @@ GLShader_lightMappingMaterial::GLShader_lightMappingMaterial() :
 	GLCompileMacro_USE_REFLECTIVE_SPECULAR( this ),
 	GLCompileMacro_USE_PHYSICAL_MAPPING( this ),
 	GLCompileMacro_USE_SHADOW_MAPPING( this ) {
+}
+
+void GLShader_lightMappingMaterial::SetShaderProgramUniforms( ShaderProgramDescriptor *shaderProgram )
+{
+	glUniform1i( glGetUniformLocation( shaderProgram->id, "u_ShadowAtlas" ), BIND_SHADOWATLAS );
 }
 
 GLShader_reflection::GLShader_reflection():

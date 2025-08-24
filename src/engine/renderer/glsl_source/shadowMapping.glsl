@@ -188,7 +188,7 @@ int SelectShadowCascade(float viewDepth, int lightIndex) {
 }
 
 // Main shadow calculation function
-float CalculateShadowFactor(vec3 worldPos, vec3 normal, int lightIndex) {
+float CalculateShadowFactor(vec3 worldPos, vec3 viewDir, vec3 normal, int lightIndex) {
 	if (lightIndex < 0 || lightIndex >= 4) {
 		return 1.0; // No shadow
 	}
@@ -202,7 +202,7 @@ float CalculateShadowFactor(vec3 worldPos, vec3 normal, int lightIndex) {
 	}
 
 	// Calculate view-space depth for cascade selection
-	float viewDepth = length(worldPos - u_ViewOrigin);
+	float viewDepth = length(worldPos - viewDir);
 	int cascadeIndex = (numCascades > 1) ? SelectShadowCascade(viewDepth, lightIndex) : 0;
 
 	// Get shadow matrix
@@ -228,14 +228,14 @@ float CalculateShadowFactor(vec3 worldPos, vec3 normal, int lightIndex) {
 	}
 
 	// Offset into atlas based on light's atlas region
-	vec2 atlasOffset = vec2(lightInfo.z, lightInfo.w) / vec2(4096.0); // TODO: Use actual atlas size
-	vec2 atlasScale = vec2(2048.0) / vec2(4096.0); // TODO: Use actual shadow map size
+	vec2 atlasOffset = vec2(lightInfo.z, lightInfo.w) / vec2(r_shadowAtlasSize);
+	vec2 atlasScale = vec2(r_shadowMapSize) / vec2(r_shadowAtlasSize);
 	shadowCoord.xy = shadowCoord.xy * atlasScale + atlasOffset;
 
 	// Sample shadow map with PCF
 	float exponent = u_ShadowParams.y;
 	int pcfFilter = int(u_ShadowParams.z);
-	vec2 shadowMapSize = vec2(2048.0); // TODO: Use actual shadow map size
+	vec2 shadowMapSize = vec2(r_shadowMapSize);
 
 	return SampleShadowPCF(u_ShadowAtlas, shadowCoord, pcfFilter, shadowMapSize, exponent);
 }
