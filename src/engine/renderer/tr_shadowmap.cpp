@@ -255,62 +255,6 @@ bool ShadowMapManager::AllocateAtlasRegion(int width, int height, int* offset, i
 	return false;
 }
 
-shadowMap_t* ShadowMapManager::AllocateShadowMap(refLight_t* light, int cascade) {
-	if (!IsShadowMappingEnabled() || numShadowLights >= MAX_SHADOW_LIGHTS) {
-		return nullptr;
-	}
-
-	int lightIndex = numShadowLights++;
-	lightShadowInfo_t* lightShadow = &lightShadows[lightIndex];
-
-	// Initialize light shadow info
-	lightShadow->castsShadows = true;
-	lightShadow->numCascades = (light->rlType == refLightType_t::RL_DIRECTIONAL) ? r_shadowCascades.Get() : 1;
-
-	// Allocate shadow map for the specified cascade (or first cascade if cascade == -1)
-	int cascadeIndex = (cascade == -1) ? 0 : cascade;
-	if (cascadeIndex >= lightShadow->numCascades) {
-		return nullptr;
-	}
-
-	shadowMap_t* shadowMap = &lightShadow->cascades[cascadeIndex];
-
-	// Set up shadow map properties
-	shadowMap->technique = GetShadowTechnique();
-	shadowMap->size[0] = r_shadowMapSize.Get();
-	shadowMap->size[1] = r_shadowMapSize.Get();
-	shadowMap->cascadeIndex = cascadeIndex;
-	shadowMap->lightIndex = lightIndex;
-
-	// Allocate atlas region
-	if (!AllocateAtlasRegion(shadowMap->size[0], shadowMap->size[1],
-	                        shadowMap->atlasOffset, lightIndex, cascadeIndex)) {
-		return nullptr;
-	}
-
-	// Set up technique-specific parameters
-	switch (shadowMap->technique) {
-		case shadowingMode_t::SHADOWING_ESM16:
-		case shadowingMode_t::SHADOWING_ESM32:
-			SetupESMParams(shadowMap);
-			break;
-		case shadowingMode_t::SHADOWING_VSM16:
-		case shadowingMode_t::SHADOWING_VSM32:
-			SetupVSMParams(shadowMap);
-			break;
-		case shadowingMode_t::SHADOWING_EVSM32:
-			SetupEVSMParams(shadowMap);
-			break;
-		default:
-			break;
-	}
-
-	// Set up light matrices
-	SetupLightMatrix(light, shadowMap);
-
-	return shadowMap;
-}
-
 void ShadowMapManager::SetupESMParams(shadowMap_t* shadowMap) {
 	shadowMap->params.esm.exponent = r_shadowESMExponent.Get();
 }
@@ -325,12 +269,13 @@ void ShadowMapManager::SetupEVSMParams(shadowMap_t* shadowMap) {
 	shadowMap->params.evsm.minVariance = 0.0001f; // Reasonable default
 }
 
-void ShadowMapManager::SetupLightShadows(refLight_t* light, int lightIndex) {
+void ShadowMapManager::SetupLightShadows(refLight_t* light) {
+	int lightIndex = numShadowLights + 1;
 	if ( lightIndex >= MAX_SHADOW_LIGHTS ) {
 		Log::Warn("Light index %d exceeds MAX_SHADOW_LIGHTS (%d)", lightIndex, MAX_SHADOW_LIGHTS);
 		return;
 	}
-
+	numShadowLights++;
 	Log::Debug("Setting up shadow for light %d: %s at (%.1f, %.1f, %.1f)",
 	          lightIndex,
 	          (light->rlType == refLightType_t::RL_DIRECTIONAL) ? "directional" :
@@ -338,6 +283,7 @@ void ShadowMapManager::SetupLightShadows(refLight_t* light, int lightIndex) {
 	          light->origin[0], light->origin[1], light->origin[2]);
 
 	lightShadowInfo_t* lightShadow = &lightShadows[lightIndex];
+	memset(lightShadow, 0, sizeof(*lightShadows));
 	lightShadow->castsShadows = true;
 
 	// Determine number of cascades based on light type
@@ -420,9 +366,8 @@ void ShadowMapManager::SetupLightMatrix(refLight_t* light, shadowMap_t* shadowMa
 	MatrixCopy( viewMatrix, shadowMap->lightViewMatrix );
 	MatrixCopy( projectionMatrix, shadowMap->lightProjectionMatrix );
 	MatrixMultiply( projectionMatrix, viewMatrix, shadowMap->lightViewProjectionMatrix );
-
-	// TODO: Set up light frustum from matrices
-	memset(&shadowMap->lightFrustum, 0, sizeof(shadowMap->lightFrustum));
+	// Set up light frustum from matrices
+	R_SetupFrustum2( shadowMap->lightFrustum, shadowMap->lightViewProjectionMatrix );
 
 	Log::Debug("Set up light matrix for %s light at (%.1f, %.1f, %.1f)",
 	          (light->rlType == refLightType_t::RL_DIRECTIONAL) ? "directional" :
@@ -460,7 +405,7 @@ void ShadowMapManager::UpdateShadowMaps() {
 
 	for ( int i = 0; i < numShadowOnlyLights && i < r_shadowLights.Get(); i++ ) {
 		refLight_t* light = &shadowOnlyLights[i];
-		SetupLightShadows( light, numShadowLights );
+		SetupLightShadows( light );
 		numShadowLights++; // Increment after each successful setup
 	}
 

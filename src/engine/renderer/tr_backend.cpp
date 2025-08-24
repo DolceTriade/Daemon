@@ -1240,7 +1240,7 @@ static void RenderDepthTiles()
 
 	gl_depthtile1Shader->SetUniform_zFar( zParams );
 	gl_depthtile1Shader->SetUniform_DepthMapBindless(
-		GL_BindToTMU( 0, tr.currentDepthImage ) 
+		GL_BindToTMU( 0, tr.currentDepthImage )
 	);
 
 	matrix_t ortho;
@@ -1398,7 +1398,7 @@ void RB_RenderGlobalFog()
 
 	// bind u_ColorMap
 	gl_fogGlobalShader->SetUniform_ColorMapBindless(
-		GL_BindToTMU( 0, tr.fogImage ) 
+		GL_BindToTMU( 0, tr.fogImage )
 	);
 
 	// bind u_DepthMap
@@ -1683,7 +1683,7 @@ void RB_CameraPostFX() {
 	// tr.mainFBO
 	R_BindNullFBO();
 	gl_cameraEffectsShader->SetUniform_CurrentMapBindless(
-		GL_BindToTMU( 0, tr.currentRenderImage[backEnd.currentMainFBO] ) 
+		GL_BindToTMU( 0, tr.currentRenderImage[backEnd.currentMainFBO] )
 	);
 
 	if ( glConfig.colorGrading ) {
@@ -3365,10 +3365,10 @@ const RenderCommand *SetupLightsCommand::ExecuteSelf( ) const
 			default:
 				break;
 			}
-			
+
 			// Set up shadow mapping for this light if enabled
 			if ( R_ShadowMappingEnabled() && i < r_shadowLights.Get() ) {
-				shadowMapManager.SetupLightShadows( light, i );
+				shadowMapManager.SetupLightShadows( light );
 			}
 		}
 
@@ -3813,21 +3813,21 @@ RB_RenderShadowMaps
 void RB_RenderShadowMaps()
 {
 	GLIMP_LOGCOMMENT( "--- RB_RenderShadowMaps ---" );
-	
+
 	if ( !R_ShadowMappingEnabled() ) {
 		return;
 	}
-	
+
 	// Begin shadow map generation
 	R_BeginShadowMapping();
-	
+
 	// Generate shadow maps for shadow-only lights
 	shadowMapManager.UpdateShadowMaps();
 	shadowMapManager.RenderShadowMaps();
-	
+
 	Log::Debug("Shadow map generation complete");
-	
-	// End shadow map generation  
+
+	// End shadow map generation
 	R_EndShadowMapping();
 }
 
