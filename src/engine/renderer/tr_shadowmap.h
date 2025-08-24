@@ -64,9 +64,7 @@ public:
 
 	// Rendering
 	void RenderShadowMaps();
-	void SetupShadowMapRendering(shadowAtlas_t* atlas, shadowMap_t* shadowMap);
 	void RenderShadowCasters(shadowAtlas_t* atlas, shadowMap_t* shadowMap);
-	void FinishShadowMapRendering();
 
 	// Light management
 	bool SetupLightShadows(refLight_t* light);
