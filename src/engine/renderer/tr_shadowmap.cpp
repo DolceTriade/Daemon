@@ -430,55 +430,50 @@ void ShadowMapManager::RenderShadowMaps() {
 		return;
 	}
 
+	// Save current engine state
+	uint32_t oldStateBits = glState.glStateBits;
+	int prevViewport[4] = {glState.viewportX, glState.viewportY, glState.viewportWidth, glState.viewportHeight};
+	int prevScissorBox[4] = {glState.scissorX, glState.scissorY, glState.scissorWidth, glState.scissorHeight};
+
 	// Bind shadow atlas FBO for rendering
 	FBO_t *oldFBO = glState.currentFBO;
 	R_BindFBO(sd->shadowAtlas.fbo);
 
-	// Save current OpenGL state that we'll modify
-	int prevViewport[4];
-	glGetIntegerv(GL_VIEWPORT, prevViewport);
-	GLboolean prevDepthTest, prevDepthMask, prevColorMask[4];
-	GLint prevDepthFunc;
-	GLboolean prevPolygonOffset;
-	GLboolean prevScissorTest;
-	int prevScissorBox[4];
-	glGetBooleanv(GL_DEPTH_TEST, &prevDepthTest);
-	glGetBooleanv(GL_DEPTH_WRITEMASK, &prevDepthMask);
-	glGetBooleanv(GL_COLOR_WRITEMASK, prevColorMask);
-	glGetIntegerv(GL_DEPTH_FUNC, &prevDepthFunc);
-	glGetBooleanv(GL_POLYGON_OFFSET_FILL, &prevPolygonOffset);
-	glGetBooleanv(GL_SCISSOR_TEST, &prevScissorTest);
-	if (prevScissorTest) {
-		glGetIntegerv(GL_SCISSOR_BOX, prevScissorBox);
-	}
-
 	// One-time setup since we only support one technique at a time
 	shadowingMode_t technique = sd->lightShadows[0].cascades[0].technique;
 
-	// Set up depth testing for shadow map generation
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LESS);
-	glDepthMask(GL_TRUE);
-
-	// Set color mask based on technique (same for all shadow maps)
+	// Set up state for shadow map generation using engine's state management
+	uint32_t shadowState = 0; // Start with default state
+	
+	// Enable depth testing (clear GLS_DEPTHTEST_DISABLE bit)
+	// Set depth function to LESS
+	shadowState |= GLS_DEPTHFUNC_LESS;
+	
+	// Enable depth mask
+	// This is default, so we don't need to set a specific bit
+	
+	// Set color mask based on technique
 	if (technique == shadowingMode_t::SHADOWING_ESM16 || technique == shadowingMode_t::SHADOWING_ESM32) {
-		// ESM needs color output for exponential depth
-		glColorMask(GL_TRUE, GL_FALSE, GL_FALSE, GL_FALSE);
+		// ESM needs color output for exponential depth - disable blue and alpha masks
+		shadowState |= GLS_BLUEMASK_FALSE | GLS_ALPHAMASK_FALSE;
 	} else if (technique == shadowingMode_t::SHADOWING_VSM16 || technique == shadowingMode_t::SHADOWING_VSM32 ||
 	           technique == shadowingMode_t::SHADOWING_EVSM32) {
-		// VSM/EVSM need RG output for moments
-		glColorMask(GL_TRUE, GL_TRUE, GL_FALSE, GL_FALSE);
+		// VSM/EVSM need RG output for moments - disable blue and alpha masks
+		shadowState |= GLS_BLUEMASK_FALSE | GLS_ALPHAMASK_FALSE;
 	} else {
-		// Depth only
-		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+		// Depth only - disable all color masks
+		shadowState |= GLS_REDMASK_FALSE | GLS_GREENMASK_FALSE | GLS_BLUEMASK_FALSE | GLS_ALPHAMASK_FALSE;
 	}
+	
+	// Apply the state
+	GL_State(shadowState);
 
 	// Enable polygon offset to reduce shadow acne
-	glPolygonOffset(r_shadowBias.Get(), 1.0f);
+	GL_PolygonOffset(r_shadowBias.Get(), 1.0f);
 	glEnable(GL_POLYGON_OFFSET_FILL);
 
 	// Clear the entire shadow atlas once
-	glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+	GL_ClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	// Render shadow map for each shadow light
@@ -494,7 +489,7 @@ void ShadowMapManager::RenderShadowMaps() {
 			shadowMap_t* shadowMap = &lightShadow->cascades[cascade];
 
 			// Set up rendering for this shadow map (viewport only)
-			glViewport(shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
+			GL_Viewport(shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
 			           shadowMap->size[0], shadowMap->size[1]);
 
 			// Set up matrices for light perspective
@@ -511,27 +506,11 @@ void ShadowMapManager::RenderShadowMaps() {
 		}
 	}
 
-	// Restore OpenGL state
-	glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
-	glColorMask(prevColorMask[0], prevColorMask[1], prevColorMask[2], prevColorMask[3]);
-	glDepthMask(prevDepthMask);
-	glDepthFunc(prevDepthFunc);
-	if (prevDepthTest) {
-		glEnable(GL_DEPTH_TEST);
-	} else {
-		glDisable(GL_DEPTH_TEST);
-	}
-	if (prevPolygonOffset) {
-		glEnable(GL_POLYGON_OFFSET_FILL);
-	} else {
-		glDisable(GL_POLYGON_OFFSET_FILL);
-	}
-	if (prevScissorTest) {
-		glEnable(GL_SCISSOR_TEST);
-		glScissor(prevScissorBox[0], prevScissorBox[1], prevScissorBox[2], prevScissorBox[3]);
-	} else {
-		glDisable(GL_SCISSOR_TEST);
-	}
+	// Restore engine state
+	GL_State(oldStateBits);
+	GL_Viewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
+	// Restore scissor box (scissor test is always enabled by GL_SetDefaultState)
+	GL_Scissor(prevScissorBox[0], prevScissorBox[1], prevScissorBox[2], prevScissorBox[3]);
 	R_BindFBO(oldFBO);
 
 	Log::Debug("Shadow atlas rendering complete for %d lights", sd->numShadowLights);
