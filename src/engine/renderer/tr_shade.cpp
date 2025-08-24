@@ -1247,7 +1247,7 @@ void Render_lightMapping( shaderStage_t *pStage )
 	{
 
 		// bind u_ShadowAtlas
-		image_t* shadowAtlas = shadowMapManager.GetShadowAtlas();
+		image_t* shadowAtlas = shadowMapManager.GetShadowAtlas( &backEndData[backEnd.smpFrame]->shadowData.shadowAtlas );
 		if ( shadowAtlas )
 		{
 			//gl_lightMappingShaderMaterial->SetUniform_ShadowAtlasBindless( GL_BindToTMU( BIND_SHADOWATLAS, shadowAtlas ) );
