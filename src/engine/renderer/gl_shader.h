@@ -3907,13 +3907,14 @@ class GLShader_shadowDepth :
 	public GLShader,
 	public u_ModelMatrix,
 	public u_ModelViewProjectionMatrix,
+	public u_ShadowTechnique,
+	public u_ShadowParams,
 	public GLDeformStage,
 	public GLCompileMacro_USE_VERTEX_SKINNING,
 	public GLCompileMacro_USE_VERTEX_ANIMATION
 {
 public:
 	GLShader_shadowDepth();
-	void SetShaderProgramUniforms( ShaderProgramDescriptor *shaderProgram ) override;
 };
 
 std::string GetShaderPath();

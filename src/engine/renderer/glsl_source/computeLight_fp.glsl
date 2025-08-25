@@ -165,7 +165,7 @@ layout(std140) uniform u_Lights {
 
 uniform int u_numLights;
 
-void computeDynamicLight( uint idx, vec3 P, vec3 normal, vec3 viewDir, vec4 diffuse,
+void computeDynamicLight( uint idx, vec3 P, vec3 normal, vec3 viewOrigin, vec3 viewDir, vec4 diffuse,
 	vec4 material, inout vec4 color )
 {
 	Light light = GetLight( idx );
@@ -199,7 +199,7 @@ void computeDynamicLight( uint idx, vec3 P, vec3 normal, vec3 viewDir, vec4 diff
 	}
 
 #if defined(USE_SHADOW_MAPPING)
-	float shadowFactor = CalculateShadowFactor(P, viewDir, normal, int(idx)); // P and normal are worldPos and normal, idx is lightIndex
+	float shadowFactor = CalculateShadowFactor(P, viewOrigin, normal, int(idx)); // P and normal are worldPos and normal, idx is lightIndex
 #else
 	float shadowFactor = 1.0;
 #endif  // defined(USE_SHADOW_MAPPING)
@@ -225,7 +225,7 @@ uint nextIdx( in uint count, in idxs_t idxs ) {
 	return ( idxs[count / 4u] >> ( 8u * ( count % 4u ) ) ) & 0xFFu;
 }
 
-void computeDynamicLights( vec3 P, vec3 normal, vec3 viewDir, vec4 diffuse, vec4 material,
+void computeDynamicLights( vec3 P, vec3 normal, vec3 viewOrigin, vec3 viewDir, vec4 diffuse, vec4 material,
 	inout vec4 color, in usampler3D u_LightTiles )
 {
 	if( u_numLights == 0 ) {
@@ -253,7 +253,7 @@ void computeDynamicLights( vec3 P, vec3 normal, vec3 viewDir, vec4 diffuse, vec4
 			Subtract 1 because 0 means there's no light */
 			idx = ( idx - 1u ) * uint( NUM_LIGHT_LAYERS ) + layer;
 
-			computeDynamicLight( idx, P, normal, viewDir, diffuse, material, color );
+			computeDynamicLight( idx, P, normal, viewOrigin, viewDir, diffuse, material, color );
 			lightCount++;
 		}
 		#if defined(r_showLightTiles)

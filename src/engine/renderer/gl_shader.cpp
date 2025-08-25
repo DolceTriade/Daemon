@@ -2999,13 +2999,9 @@ GLShader_shadowDepth::GLShader_shadowDepth() :
 		false, "shadowDepth", "shadowDepth" ),
 	u_ModelMatrix( this ),
 	u_ModelViewProjectionMatrix( this ),
+	u_ShadowTechnique( this ),
+	u_ShadowParams( this ),
 	GLDeformStage( this ),
 	GLCompileMacro_USE_VERTEX_SKINNING( this ),
 	GLCompileMacro_USE_VERTEX_ANIMATION( this ) {
-}
-
-void GLShader_shadowDepth::SetShaderProgramUniforms( ShaderProgramDescriptor *shaderProgram )
-{
-	// Shadow depth shader doesn't need any texture uniforms
-	// All uniforms are handled by the material system
 }

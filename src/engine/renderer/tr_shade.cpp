@@ -1251,6 +1251,9 @@ void Render_lightMapping( shaderStage_t *pStage )
 		if ( shadowAtlas )
 		{
 			gl_lightMappingShaderMaterial->SetUniform_ShadowAtlas( GL_BindToTMU( BIND_SHADOWATLAS, shadowAtlas ) );
+
+			// Debug logging
+			Log::Debug("Bound shadow atlas texture: %d", shadowAtlas->texnum);
 		}
 
 		// bind u_ShadowParams
@@ -1261,36 +1264,35 @@ void Render_lightMapping( shaderStage_t *pStage )
 		shadowParams[3] = 0.0f;                         // unused
 		gl_lightMappingShaderMaterial->SetUniform_ShadowParams( shadowParams );
 
+		Log::Debug("Set shadow params: bias=%.3f, exponent=%.1f, pcf=%.1f",
+		          shadowParams[0], shadowParams[1], shadowParams[2]);
+
 		// bind u_ShadowMatrices
-		// TODO: Get actual shadow matrices from shadow map manager
-		// For now, set identity matrices to prevent shader errors
-		matrix_t identityMatrices[16];
-		for ( int i = 0; i < 16; i++ )
-		{
-			MatrixIdentity( identityMatrices[i] );
-		}
-		gl_lightMappingShaderMaterial->SetUniform_ShadowMatrices( identityMatrices, 16 );
+		matrix_t shadowMatrices[16];
+		shadowMapManager.GetShadowMatrices(shadowMatrices, 16);
+		gl_lightMappingShaderMaterial->SetUniform_ShadowMatrices( shadowMatrices, 16 );
 
 		// bind u_ShadowLightInfo
-		// For now, set placeholder light info for ESM16
 		vec4_t shadowLightInfo[4];
-		for ( int i = 0; i < 4; i++ ) {
-			shadowLightInfo[i][0] = 2.0f; // technique: ESM16
-			shadowLightInfo[i][1] = 1.0f; // numCascades
-			shadowLightInfo[i][2] = 0.0f; // atlasOffset.x
-			shadowLightInfo[i][3] = 0.0f; // atlasOffset.y
-		}
+		shadowMapManager.GetShadowLightInfo(shadowLightInfo, 4);
 		gl_lightMappingShaderMaterial->SetUniform_ShadowLightInfo( shadowLightInfo, 4 );
+
+		Log::Debug("Set shadow light info:");
+		for (int i = 0; i < 4; i++) {
+			Log::Debug("  [%d]: (%.1f, %.1f, %.1f, %.1f)", i,
+			          shadowLightInfo[i][0], shadowLightInfo[i][1],
+			          shadowLightInfo[i][2], shadowLightInfo[i][3]);
+		}
 
 		// bind u_CascadeSplits
 		vec4_t cascadeSplits[4];
-		for ( int i = 0; i < 4; i++ ) {
-			Vector4Set( cascadeSplits[i], 10.0f, 50.0f, 200.0f, 1000.0f );
-		}
+		shadowMapManager.GetCascadeSplits(cascadeSplits, 4);
 		gl_lightMappingShaderMaterial->SetUniform_CascadeSplits( cascadeSplits, 4 );
 
 		// bind u_ShadowTechnique
 		gl_lightMappingShaderMaterial->SetUniform_ShadowTechnique( r_shadows.Get() );
+
+		Log::Debug("Set shadow technique: %d", r_shadows.Get());
 	}
 
 	if ( r_profilerRenderSubGroups.Get() && !( pStage->stateBits & GLS_DEPTHMASK_TRUE ) ) {
@@ -2133,6 +2135,15 @@ void Tess_StageIteratorShadowDepth()
 		gl_shadowDepthShader->SetUniform_ModelMatrix( backEnd.orientation.transformMatrix );
 		gl_shadowDepthShader->SetUniform_ModelViewProjectionMatrix(
 			glState.modelViewProjectionMatrix[ glState.stackIndex ] );
+		gl_shadowDepthShader->SetUniform_ShadowTechnique( r_shadows.Get() );
+		// bind u_ShadowParams
+		vec4_t shadowParams;
+		shadowParams[0] = r_shadowBias.Get();           // bias
+		shadowParams[1] = r_shadowESMExponent.Get();    // ESM exponent
+		shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
+		shadowParams[3] = 0.0f;                         // unused
+		gl_shadowDepthShader->SetUniform_ShadowParams( shadowParams );
+
 
 		// Set vertex pointers
 		gl_shadowDepthShader->SetRequiredVertexPointers();
@@ -2168,7 +2179,7 @@ void Tess_Clear()
 		glUnmapBuffer( GL_ELEMENT_ARRAY_BUFFER );
 	}
 
-	// This is important after doing CPU-only tessellation with Tess_MapVBOs( true ).
+	// This is important after doing CPU-only tessellation with Tess_MapVBOs( true )
 	// A lot of code relies on a behavior of Tess_Begin: automatically map the
 	// default VBO *if tess.verts is null*.
 	tess.verts = nullptr;
