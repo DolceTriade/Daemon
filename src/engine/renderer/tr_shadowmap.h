@@ -65,6 +65,9 @@ public:
 	// Rendering
 	void RenderShadowMaps();
 	void RenderShadowCasters(shadowAtlas_t* atlas, shadowMap_t* shadowMap);
+	
+	// Debug
+	void DebugRenderShadowAtlas();
 
 	// Light management
 	bool SetupLightShadows(refLight_t* light);
@@ -76,6 +79,12 @@ public:
 
 	// Atlas access
 	image_t* GetShadowAtlas(const shadowAtlas_t* atlas) const;
+	
+	// Shadow data access for shader uniforms
+	void GetShadowMatrices(matrix_t* matrices, int maxMatrices) const;
+	void GetShadowLightInfo(vec4_t* lightInfo, int maxLights) const;
+	void GetCascadeSplits(vec4_t* splits, int maxLights) const;
+	int GetNumShadowLights() const;
 
 private:
 	// These members are now part of shadowData_t

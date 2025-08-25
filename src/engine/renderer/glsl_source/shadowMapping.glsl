@@ -188,7 +188,7 @@ int SelectShadowCascade(float viewDepth, int lightIndex) {
 }
 
 // Main shadow calculation function
-float CalculateShadowFactor(vec3 worldPos, vec3 viewDir, vec3 normal, int lightIndex) {
+float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lightIndex) {
 	if (lightIndex < 0 || lightIndex >= 4) {
 		return 1.0; // No shadow
 	}
@@ -202,7 +202,7 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewDir, vec3 normal, int lightI
 	}
 
 	// Calculate view-space depth for cascade selection
-	float viewDepth = length(worldPos - viewDir);
+	float viewDepth = length(worldPos - viewOrigin);
 	int cascadeIndex = (numCascades > 1) ? SelectShadowCascade(viewDepth, lightIndex) : 0;
 
 	// Get shadow matrix

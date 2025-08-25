@@ -2497,6 +2497,11 @@ static void RB_RenderDebugUtils()
 		GL_LoadModelViewMatrix( backEnd.viewParms.world.modelViewMatrix );
 	}
 
+	// Debug visualization of shadow atlas
+	if (r_shadowDebug.Get() && R_ShadowMappingEnabled()) {
+		shadowMapManager.DebugRenderShadowAtlas();
+	}
+
 	GL_CheckErrors();
 }
 
@@ -2676,6 +2681,8 @@ static void RB_RenderView( bool depthPass )
 	// Generate shadow maps before rendering the main view
 	if ( !depthPass && R_ShadowMappingEnabled() ) {
 		RB_RenderShadowMaps();
+		// Debug visualization of shadow atlas
+		shadowMapManager.DebugRenderShadowAtlas();
 	}
 
 	if( depthPass ) {
@@ -3680,9 +3687,13 @@ void RB_ShowImages()
 		backEnd.viewParms.viewportY + backEnd.viewParms.viewportHeight, -99999, 99999 );
 	GL_LoadProjectionMatrix( ortho );
 
+	size_t count = 0;
 	for ( size_t i = 0; i < tr.images.size(); i++ )
 	{
 		image = tr.images[ i ];
+		if ( !Str::IsIPrefix( "*shadow", image->name ) ) {
+			continue;
+		}
 
 		/*
 		   if(image->bits & (IF_RGBA16F | IF_RGBA32F | IF_LA16F | IF_LA32F))
@@ -3694,8 +3705,8 @@ void RB_ShowImages()
 
 		w = glConfig.vidWidth / 20;
 		h = glConfig.vidHeight / 15;
-		x = i % 20 * w;
-		y = i / 20 * h;
+		x = count % 20 * w;
+		y = count / 20 * h;
 
 		// show in proportional size in mode 2
 		if ( r_showImages->integer == 2 )
@@ -3710,6 +3721,7 @@ void RB_ShowImages()
 		);
 
 		Tess_InstantQuad( *gl_genericShader, x, y, w, h );
+		count++;
 	}
 
 	GL_PopMatrix();
@@ -3815,14 +3827,20 @@ void RB_RenderShadowMaps()
 	GLIMP_LOGCOMMENT( "--- RB_RenderShadowMaps ---" );
 
 	if ( !R_ShadowMappingEnabled() ) {
+		Log::Debug("Shadow mapping not enabled, skipping shadow map rendering");
 		return;
 	}
+
+	Log::Debug("Shadow mapping enabled, proceeding with shadow map rendering");
 
 	// Generate shadow maps for shadow-only lights
 	shadowMapManager.UpdateShadowMaps();
 	shadowMapManager.RenderShadowMaps();
 
 	Log::Debug("Shadow map generation complete");
+
+	// Debug visualization of shadow atlas
+	shadowMapManager.DebugRenderShadowAtlas();
 
 	// End shadow map generation
 	R_EndShadowMapping();
