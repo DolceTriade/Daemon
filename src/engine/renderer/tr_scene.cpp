@@ -299,9 +299,7 @@ void RE_AddDynamicLightToSceneET( const vec3_t org, float radius, float intensit
 
 	if ( flags & REF_INVERSE_DLIGHT )
 	{
-		// REF_INVERSE_DLIGHT lights are shadow-only lights from cgame
-		// TODO: Implement shadow light processing properly without breaking dynamic lights
-		// For now, just skip them to prevent interference
+		R_AddShadowLight( org, radius, intensity, r, g, b, hShader, flags );
 		return;
 	}
 
