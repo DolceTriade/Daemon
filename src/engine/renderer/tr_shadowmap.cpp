@@ -700,6 +700,58 @@ void ShadowMapManager::RenderShadowCasters(shadowAtlas_t* atlas, shadowMap_t* sh
 	          shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
 	          shadowMap->size[0], shadowMap->size[1]);
 
+	// CORE FIX: Save the current camera view parameters
+	viewParms_t savedViewParms = tr.viewParms;
+
+	// Set up view parameters for the light's perspective
+	viewParms_t lightViewParms = {};
+	
+	// Basic viewport setup for the shadow map
+	lightViewParms.viewportX = 0;
+	lightViewParms.viewportY = 0;
+	lightViewParms.viewportWidth = shadowMap->size[0];
+	lightViewParms.viewportHeight = shadowMap->size[1];
+	lightViewParms.frameSceneNum = savedViewParms.frameSceneNum;
+	lightViewParms.frameCount = savedViewParms.frameCount;
+
+	// Extract light position and orientation from the light view matrix
+	matrix_t invLightViewMatrix;
+	MatrixCopy(shadowMap->lightViewMatrix, invLightViewMatrix);
+	if (!MatrixInverse(invLightViewMatrix)) {
+		Log::Warn("Failed to invert light view matrix for shadow rendering");
+		return;
+	}
+	
+	// Extract light position (translation part of inverse view matrix)
+	lightViewParms.orientation.origin[0] = invLightViewMatrix[12];
+	lightViewParms.orientation.origin[1] = invLightViewMatrix[13];
+	lightViewParms.orientation.origin[2] = invLightViewMatrix[14];
+	
+	// Extract light orientation (rotation part of inverse view matrix)
+	for (int i = 0; i < 3; i++) {
+		lightViewParms.orientation.axis[0][i] = invLightViewMatrix[i * 4 + 0];
+		lightViewParms.orientation.axis[1][i] = invLightViewMatrix[i * 4 + 1];
+		lightViewParms.orientation.axis[2][i] = invLightViewMatrix[i * 4 + 2];
+	}
+
+	// Set up PVS origin for culling (use light position)
+	VectorCopy(lightViewParms.orientation.origin, lightViewParms.pvsOrigin);
+
+	// Copy the projection matrix from the shadow map
+	MatrixCopy(shadowMap->lightProjectionMatrix, lightViewParms.projectionMatrix);
+
+	Log::Debug("Light view setup: origin=(%.1f,%.1f,%.1f)",
+	          lightViewParms.orientation.origin[0],
+	          lightViewParms.orientation.origin[1],
+	          lightViewParms.orientation.origin[2]);
+
+	// CRITICAL: Call R_RenderView with the light's view parameters
+	// This will do all the heavy lifting: surface collection, culling, sorting, etc.
+	R_RenderView(&lightViewParms);
+
+	Log::Debug("R_RenderView completed for light perspective: %d surfaces collected",
+	          tr.viewParms.numDrawSurfs);
+
 	// Enable front-face culling for shadow maps to reduce shadow acne and improve performance
 	cullType_t oldCullType = glState.faceCulling;
 	GL_Cull(cullType_t::CT_FRONT_SIDED);
@@ -712,10 +764,9 @@ void ShadowMapManager::RenderShadowCasters(shadowAtlas_t* atlas, shadowMap_t* sh
 	bool oldDepthRange = false;
 	bool depthRange = false;
 
-	// For simplicity, render all opaque surfaces from the main view as shadow casters
-	// This is a simplified implementation - ideally we'd do light-space culling here
-	int firstSurf = backEnd.viewParms.firstDrawSurf[Util::ordinal(shaderSort_t::SS_ENVIRONMENT_FOG)];
-	int lastSurf = backEnd.viewParms.firstDrawSurf[Util::ordinal(shaderSort_t::SS_OPAQUE) + 1];
+	// Now use the surfaces collected from the light's perspective (in tr.viewParms)
+	int firstSurf = tr.viewParms.firstDrawSurf[Util::ordinal(shaderSort_t::SS_ENVIRONMENT_FOG)];
+	int lastSurf = tr.viewParms.firstDrawSurf[Util::ordinal(shaderSort_t::SS_OPAQUE) + 1];
 
 	// Validate surface range
 	if (firstSurf >= lastSurf || firstSurf < 0 || lastSurf > backEnd.viewParms.numDrawSurfs) {
