@@ -2431,6 +2431,9 @@ struct shadowMap_t {
     // Cascade data (for directional lights)
     float cascadeSplit;
     vec3_t cascadeBounds[2];
+    
+    // Material system integration
+    uint32_t shadowViewID;
 };
 
 struct shadowAtlas_t {

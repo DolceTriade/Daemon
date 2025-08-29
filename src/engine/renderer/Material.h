@@ -356,6 +356,10 @@ class MaterialSystem {
 	void QueueSurfaceCull( const uint32_t viewID, const vec3_t origin, const frustum_t* frustum );
 	void DepthReduction();
 	void CullSurfaces();
+	// Shadow mapping integration
+	void CullShadowViews();
+	void QueueShadowSurfaceCull( const uint32_t shadowViewID, const vec3_t lightOrigin, const matrix_t lightViewMatrix, const matrix_t lightProjectionMatrix );
+	void RenderShadowMaterials( const uint32_t shadowViewID );
 	
 	void StartFrame();
 	void EndFrame();
@@ -426,13 +430,35 @@ class MaterialSystem {
 	uint32_t currentFrame = 0;
 	uint32_t nextFrame = 1;
 
+public:
+	// Shadow mapping data structures (public for tr_shadowmap.cpp access)
+	struct ShadowView {
+		uint32_t shadowViewID;
+		vec3_t lightOrigin;
+		matrix_t lightViewMatrix;
+		matrix_t lightProjectionMatrix;
+		frustum_t frustum;
+		uint32_t surfaceCommandsCount = 0;
+		uint32_t surfaceDescriptorsCount = 0;
+		std::vector<MaterialSurface> shadowSurfaces;
+		std::vector<DrawCommand> shadowDrawCommands;
+	};
+	
+	std::vector<ShadowView> shadowViews;
+	uint32_t currentShadowViewCount = 0;
+	
+	// Shadow view accessors
+	std::vector<ShadowView>& GetShadowViews() { return shadowViews; }
+	uint32_t GetCurrentShadowViewCount() const { return currentShadowViewCount; }
+	void SetCurrentShadowViewCount( uint32_t count ) { currentShadowViewCount = count; }
+private:
+
 	bool AddPortalSurface( uint32_t viewID, PortalSurface* portalSurfs );
 
 	void RenderIndirect( const Material& material, const uint32_t viewID, const GLenum mode );
 	void RenderMaterial( Material& material, const uint32_t viewID );
 	void UpdateFrameData();
 };
-
 extern GLUBO materialsUBO; // Global
 extern GLBuffer texDataBuffer; // Global
 extern GLUBO lightMapDataUBO; // Global
@@ -444,6 +470,11 @@ extern GLUBO surfaceBatchesUBO; // Global
 extern GLBuffer atomicCommandCountersBuffer; // Per viewframe
 extern GLSSBO portalSurfacesSSBO; // Per viewframe
 
+// Shadow mapping SSBOs
+extern GLSSBO shadowSurfaceDescriptorsSSBO; // Per shadow view
+extern GLSSBO shadowSurfaceCommandsSSBO; // Per shadow view, GPU updated
+extern GLBuffer shadowCulledCommandsBuffer; // Per shadow view
+extern GLBuffer shadowAtomicCommandCountersBuffer; // Per shadow view
 extern GLSSBO debugSSBO; // Global
 
 extern MaterialSystem materialSystem;
@@ -479,6 +510,10 @@ void ProcessMaterialSkybox( Material* material, shaderStage_t* pStage, MaterialS
 void ProcessMaterialScreen( Material* material, shaderStage_t* pStage, MaterialSurface* /* surface */ );
 void ProcessMaterialHeatHaze( Material* material, shaderStage_t* pStage, MaterialSurface* surface );
 void ProcessMaterialLiquid( Material* material, shaderStage_t* pStage, MaterialSurface* /* surface */ );
-void ProcessMaterialFog( Material* material, shaderStage_t* pStage, MaterialSurface* surface );
+void ProcessMaterialFog( Material* material, shaderStage_t* pStage, MaterialSurface* /* surface */ );
 
-#endif // MATERIAL_H
+// Shadow mapping functions
+void BindShaderShadowDepth( Material* material );
+void ProcessMaterialShadowDepth( Material* material, shaderStage_t* pStage, MaterialSurface* surface );
+
+#endif

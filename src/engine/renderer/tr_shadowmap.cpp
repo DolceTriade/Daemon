@@ -25,6 +25,7 @@ along with Daemon Source Code.  If not, see <http://www.gnu.org/licenses/>.
 // tr_shadowmap.cpp - Shadow mapping system implementation
 
 #include "tr_local.h" // Now includes all shadow mapping structs
+#include "Material.h" // For material system integration
 
 // Global shadow map manager instance
 ShadowMapManager shadowMapManager; // Still a singleton, but operates on passed shadowData_t
@@ -325,10 +326,14 @@ bool ShadowMapManager::SetupLightShadows(refLight_t* light) {
 		shadowMap->size[1] = r_shadowMapSize.Get();
 		shadowMap->cascadeIndex = cascade;
 		shadowMap->lightIndex = lightIndex;
+		
+		// Initialize shadow view ID for material system integration
+		// Each light/cascade combination gets a unique shadow view ID
+		shadowMap->shadowViewID = lightIndex * MAX_SHADOW_CASCADES + cascade;
 
-		Log::Debug("Setting up cascade %d: technique=%d, size=%dx%d",
+		Log::Debug("Setting up cascade %d: technique=%d, size=%dx%d, shadowViewID=%d",
 		          cascade, static_cast<int>(shadowMap->technique),
-		          shadowMap->size[0], shadowMap->size[1]);
+		          shadowMap->size[0], shadowMap->size[1], shadowMap->shadowViewID);
 
 		// Allocate atlas region for this shadow map
 		Log::Debug("Allocating atlas region %dx%d for light %d cascade %d",
@@ -745,236 +750,62 @@ void ShadowMapManager::RenderShadowCasters(shadowAtlas_t* atlas, shadowMap_t* sh
 	          lightViewParms.orientation.origin[1],
 	          lightViewParms.orientation.origin[2]);
 
-	// CRITICAL: Call R_RenderView with the light's view parameters
-	// This will do all the heavy lifting: surface collection, culling, sorting, etc.
+	// PHASE 1: Use Material System instead of traditional R_RenderView
+	// Queue this shadow view for material system processing
+	materialSystem.QueueShadowSurfaceCull( shadowMap->shadowViewID, 
+	                                      lightViewParms.orientation.origin,
+	                                      shadowMap->lightViewMatrix,
+	                                      shadowMap->lightProjectionMatrix );
+	
+	// Collect surfaces for this shadow view using the traditional frontend
+	// but store them in the material system's shadow structures
 	R_RenderView(&lightViewParms);
-
-	Log::Debug("R_RenderView completed for light perspective: %d surfaces collected",
-	          tr.viewParms.numDrawSurfs);
-
-	// Enable front-face culling for shadow maps to reduce shadow acne and improve performance
-	cullType_t oldCullType = glState.faceCulling;
-	GL_Cull(cullType_t::CT_FRONT_SIDED);
-
-	// Save the current entity and surface shader states
-	trRefEntity_t *oldEntity = backEnd.currentEntity;
-	shader_t *oldShader = nullptr;
-	int oldLightmapNum = -1;
-	int oldFogNum = -1;
-	bool oldDepthRange = false;
-	bool depthRange = false;
-
-	// Now use the surfaces collected from the light's perspective (in tr.viewParms)
+	
+	// Copy collected surfaces to material system shadow view
+	if ( shadowMap->shadowViewID >= materialSystem.GetShadowViews().size() ) {
+		materialSystem.GetShadowViews().resize( shadowMap->shadowViewID + 1 );
+	}
+	
+	MaterialSystem::ShadowView& shadowView = materialSystem.GetShadowViews()[shadowMap->shadowViewID];
+	shadowView.shadowSurfaces.clear();
+	shadowView.shadowDrawCommands.clear();
+	
+	// Convert drawSurfs to MaterialSurfaces for shadow rendering
 	int firstSurf = tr.viewParms.firstDrawSurf[Util::ordinal(shaderSort_t::SS_ENVIRONMENT_FOG)];
 	int lastSurf = tr.viewParms.firstDrawSurf[Util::ordinal(shaderSort_t::SS_OPAQUE) + 1];
-
-	// Validate surface range
-	if (firstSurf >= lastSurf || firstSurf < 0 || lastSurf > backEnd.viewParms.numDrawSurfs) {
-		// Use safer bounds
-		firstSurf = std::max(0, firstSurf);
-		lastSurf = std::min(backEnd.viewParms.numDrawSurfs, lastSurf);
-		if (firstSurf >= lastSurf) {
-			Log::Warn("No valid surfaces to process for shadow casting");
-			return;
-		}
-	}
-
-	// Quick validation
-	if (backEnd.viewParms.numDrawSurfs <= 0) {
-		Log::Warn("No draw surfaces available for shadow casting");
-		return;
-	}
-
-	Log::Debug("Processing surfaces from index %d to %d", firstSurf, lastSurf);
-
-	int surfaceCount = 0;
-	int renderedSurfaceCount = 0;
-	int skippedSurfaceCount = 0;
-
-	for (int i = firstSurf; i < lastSurf; i++) {
-		drawSurf_t *drawSurf = &backEnd.viewParms.drawSurfs[i];
-
-		// Skip invalid surfaces
-		if (drawSurf->surface == nullptr) {
-			skippedSurfaceCount++;
+	
+	for ( int i = firstSurf; i < lastSurf && i < backEnd.viewParms.numDrawSurfs; i++ ) {
+		drawSurf_t* drawSurf = &backEnd.viewParms.drawSurfs[i];
+		
+		if ( !drawSurf->surface || !drawSurf->shader ) continue;
+		
+		// Skip non-solid surfaces
+		if ( drawSurf->shader->contentFlags && 
+		     !(drawSurf->shader->contentFlags & CONTENTS_SOLID) ) {
 			continue;
 		}
-
-		surfaceCount++;
-
-		// Log basic info for first surface only
-	if (surfaceCount == 1 && drawSurf->shader) {
-		Log::Debug("First surface: shader='%s', contentFlags=0x%x",
-		          drawSurf->shader->name, drawSurf->shader->contentFlags);
+		
+		// Create MaterialSurface for this shadow caster
+		MaterialSurface shadowSurface;
+		shadowSurface.shader = drawSurf->shader;
+		shadowSurface.surface = drawSurf->surface;
+		shadowSurface.bspSurface = drawSurf->bspSurface;
+		shadowSurface.lightMapNum = drawSurf->lightmapNum();
+		shadowSurface.fog = drawSurf->fog;
+		
+		// Add to shadow view
+		shadowView.shadowSurfaces.push_back( shadowSurface );
 	}
 
-		// Get surface properties
-		trRefEntity_t *entity = drawSurf->entity;
-		shader_t *shader = drawSurf->shader;
-		int lightmapNum = drawSurf->lightmapNum();
-		int fogNum = drawSurf->fog;
+	Log::Debug("R_RenderView completed for light perspective: %d surfaces collected, %zu shadow surfaces created",
+	          tr.viewParms.numDrawSurfs, shadowView.shadowSurfaces.size());
 
-		// Log surface info for first few surfaces
-		if (surfaceCount <= 5) {
-			Log::Debug("Processing surface %d: shader=%s, entity=%p",
-			          i, shader ? shader->name : "null", entity);
-		}
+	// PHASE 1: Use Material System for shadow rendering
+	// Replace traditional tessellation with material system call
+	materialSystem.RenderShadowMaterials( shadowMap->shadowViewID );
 
-		// For now, render all surfaces as potential shadow casters
-		// TODO: Add proper shadow casting flags/checks in the future
-
-		// Skip translucent surfaces (sort is a float value)
-		// Note: We check if contentFlags is non-zero first to avoid skipping surfaces
-		// that don't have any content flags set. If no flags are set, we assume the
-		// surface should be rendered for shadows.
-		if (shader && shader->contentFlags && !(shader->contentFlags & CONTENTS_SOLID)) {
-			skippedSurfaceCount++;
-			continue;
-		}
-
-
-
-		// Check if we need to switch shader/entity state
-		bool needNewBatch = (shader != oldShader || entity != oldEntity ||
-		                     lightmapNum != oldLightmapNum || fogNum != oldFogNum);
-
-		if (needNewBatch) {
-			// End current batch if any
-			if (oldShader != nullptr) {
-				// Only call Tess_End if we actually have geometry
-				if (tess.numVertexes > 0 && tess.numIndexes > 0) {
-					Tess_End();
-				}
-			}
-
-			// Start new batch with shadow depth stage iterator
-			Tess_Begin(Tess_StageIteratorShadowDepth, shader, false, lightmapNum, fogNum, drawSurf->bspSurface);
-			oldShader = shader;
-			oldLightmapNum = lightmapNum;
-			oldFogNum = fogNum;
-			renderedSurfaceCount++;
-		}
-
-		// Handle entity transformation
-		if (entity != oldEntity) {
-			depthRange = false;
-
-			if (entity != &tr.worldEntity) {
-				backEnd.currentEntity = entity;
-
-				// NOTE: We should NOT skip third-person entities from shadow casting in third-person mode
-				// Third-person entities SHOULD cast shadows since they're visible in the scene
-				// The RF_THIRD_PERSON flag just indicates it's a third-person view entity
-				if (backEnd.currentEntity->e.renderfx & RF_THIRD_PERSON) {
-					Log::Debug("Processing third-person entity %p for shadow casting (visible in scene)", entity);
-					// Continue processing this entity - DO NOT skip it
-				}
-
-				// Also check for third person flag
-				if (backEnd.currentEntity->e.renderfx & RF_THIRD_PERSON) {
-					Log::Debug("Entity %p has RF_THIRD_PERSON flag set - this might exclude it from shadows!", entity);
-				}
-
-				// Set up the transformation matrix for this entity
-				R_RotateEntityForViewParms(backEnd.currentEntity, &backEnd.viewParms, &backEnd.orientation);
-
-				if (backEnd.currentEntity->e.renderfx & RF_DEPTHHACK) {
-					depthRange = true;
-				}
-			} else {
-				backEnd.currentEntity = &tr.worldEntity;
-				backEnd.orientation = backEnd.viewParms.world;
-
-				if (surfaceCount <= 10) {
-					Log::Debug("Processing world entity");
-				}
-			}
-
-			GL_LoadModelViewMatrix(backEnd.orientation.modelViewMatrix);
-
-			// Handle depth range changes
-			if (oldDepthRange != depthRange) {
-				if (depthRange) {
-					glDepthRange(0, 0.3);
-				} else {
-					glDepthRange(0, 1);
-				}
-				oldDepthRange = depthRange;
-			}
-
-			oldEntity = entity;
-		}
-
-		// Add the surface geometry to the tessellator
-	// Track if we're actually adding geometry
-	static int geometryAddCount = 0;
-	geometryAddCount++;
-
-	if (geometryAddCount <= 10) {  // Log first 10 geometry additions
-		int vertsBefore = tess.numVertexes;
-		int indexesBefore = tess.numIndexes;
-
-		rb_surfaceTable[Util::ordinal(*drawSurf->surface)](drawSurf->surface);
-
-		int vertsAdded = tess.numVertexes - vertsBefore;
-		int indexesAdded = tess.numIndexes - indexesBefore;
-
-		if (vertsAdded > 0 || indexesAdded > 0) {
-			Log::Debug("Added geometry #%d: %d verts, %d indexes",
-			          geometryAddCount, vertsAdded, indexesAdded);
-		}
-	} else {
-		rb_surfaceTable[Util::ordinal(*drawSurf->surface)](drawSurf->surface);
-	}
-	}
-
-	// End the final batch
-	if (oldShader != nullptr) {
-		// Only call Tess_End if we actually have geometry
-		if (tess.numVertexes > 0 && tess.numIndexes > 0) {
-			static int tessEndCount = 0;
-			tessEndCount++;
-
-			if (tessEndCount <= 5) {
-				Log::Debug("Tess_End #%d: %d verts, %d indexes",
-				          tessEndCount, tess.numVertexes, tess.numIndexes);
-			}
-
-			Tess_End();
-
-			if (tessEndCount <= 5) {
-				Log::Debug("Ended final batch with shader %s", oldShader ? oldShader->name : "null");
-			}
-		}
-	}
-
-	// Restore world transformation
-	backEnd.currentEntity = &tr.worldEntity;
-	backEnd.orientation = backEnd.viewParms.world;
-	GL_LoadModelViewMatrix(backEnd.orientation.modelViewMatrix);
-
-	// Reset depth range
-	if (oldDepthRange) {
-		glDepthRange(0, 1);
-	}
-
-	// Restore face culling state
-	GL_Cull(oldCullType);
-
-	Log::Debug("Shadow caster rendering complete: processed %d surfaces, rendered %d batches, skipped %d surfaces",
-	          surfaceCount, renderedSurfaceCount, skippedSurfaceCount);
-
-	// Add a sanity check - if we processed very few surfaces, log a warning
-	if (surfaceCount < 10) {
-		Log::Warn("Very few surfaces (%d) processed for shadow casting", surfaceCount);
-	}
-
-	// Log if we rendered any batches at all
-	if (renderedSurfaceCount == 0) {
-		Log::Warn("NO batches rendered for shadow casting!");
-	} else {
-		Log::Debug("Successfully rendered shadow map with %d batches", renderedSurfaceCount);
-	}
+	Log::Debug("Shadow caster rendering complete via Material System: %zu surfaces processed",
+	          shadowView.shadowSurfaces.size());
 }
 
 void ShadowMapManager::DebugRenderShadowAtlas() {

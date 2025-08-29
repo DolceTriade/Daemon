@@ -51,6 +51,12 @@ GLUBO surfaceBatchesUBO( "surfaceBatches", BufferBind::SURFACE_BATCHES, 0, 0 );
 GLBuffer atomicCommandCountersBuffer( "atomicCommandCounters", BufferBind::COMMAND_COUNTERS_ATOMIC, 0, 0 );
 GLSSBO portalSurfacesSSBO( "portalSurfaces", BufferBind::PORTAL_SURFACES, GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT, 0 );
 
+// Shadow mapping SSBOs
+GLSSBO shadowSurfaceDescriptorsSSBO( "shadowSurfaceDescriptors", BufferBind::SURFACE_DESCRIPTORS, 0, 0 );
+GLSSBO shadowSurfaceCommandsSSBO( "shadowSurfaceCommands", BufferBind::SURFACE_COMMANDS, 0, 0 );
+GLBuffer shadowCulledCommandsBuffer( "shadowCulledCommands", BufferBind::CULLED_COMMANDS, 0, 0 );
+GLBuffer shadowAtomicCommandCountersBuffer( "shadowAtomicCommandCounters", BufferBind::COMMAND_COUNTERS_ATOMIC, 0, 0 );
+
 GLSSBO debugSSBO( "debug", BufferBind::DEBUG, GL_MAP_WRITE_BIT, GL_MAP_INVALIDATE_RANGE_BIT );
 
 PortalView portalStack[MAX_VIEWS];
@@ -2120,4 +2126,121 @@ void MaterialSystem::RenderMaterial( Material& material, const uint32_t viewID )
 	if ( material.usePolygonOffset ) {
 		glDisable( GL_POLYGON_OFFSET_FILL );
 	}
+}
+
+// Shadow mapping implementations
+
+void MaterialSystem::CullShadowViews() {
+	// For Phase 1: No GPU culling, just enable all shadow surfaces
+	// This will be extended in Phase 2 to include GPU frustum/occlusion culling
+	
+	for ( uint32_t i = 0; i < currentShadowViewCount; i++ ) {
+		ShadowView& shadowView = shadowViews[i];
+		
+		// Enable all shadow surfaces for this view (no culling in Phase 1)
+		for ( auto& drawCmd : shadowView.shadowDrawCommands ) {
+			// Mark all commands as enabled (equivalent to no culling)
+			// In Phase 2, this will be replaced with GPU compute culling
+		}
+	}
+}
+
+void MaterialSystem::QueueShadowSurfaceCull( const uint32_t shadowViewID, const vec3_t lightOrigin, 
+                                           const matrix_t lightViewMatrix, const matrix_t lightProjectionMatrix ) {
+	// Ensure we have space for this shadow view
+	if ( shadowViewID >= shadowViews.size() ) {
+		shadowViews.resize( shadowViewID + 1 );
+	}
+	
+	ShadowView& shadowView = shadowViews[shadowViewID];
+	shadowView.shadowViewID = shadowViewID;
+	VectorCopy( lightOrigin, shadowView.lightOrigin );
+	MatrixCopy( lightViewMatrix, shadowView.lightViewMatrix );
+	MatrixCopy( lightProjectionMatrix, shadowView.lightProjectionMatrix );
+	
+	// Extract frustum planes from the light's view-projection matrix
+	matrix_t lightViewProjectionMatrix;
+	MatrixMultiply( lightProjectionMatrix, lightViewMatrix, lightViewProjectionMatrix );
+	R_SetupFrustum2( shadowView.frustum, lightViewProjectionMatrix );
+	
+	// Update shadow view count
+	if ( shadowViewID >= currentShadowViewCount ) {
+		currentShadowViewCount = shadowViewID + 1;
+	}
+}
+
+void MaterialSystem::RenderShadowMaterials( const uint32_t shadowViewID ) {
+	if ( shadowViewID >= shadowViews.size() ) {
+		Log::Warn( "Invalid shadow view ID: %d", shadowViewID );
+		return;
+	}
+	
+	ShadowView& shadowView = shadowViews[shadowViewID];
+	
+	// For Phase 1: Use traditional rendering approach but through material system structures
+	// This will be replaced with indirect rendering in Phase 2
+	
+	Log::Debug( "Rendering %zu shadow surfaces for shadow view %d", 
+	           shadowView.shadowSurfaces.size(), shadowViewID );
+	
+	// Process each shadow surface
+	for ( auto& surface : shadowView.shadowSurfaces ) {
+		// Skip non-shadow-casting surfaces
+		if ( surface.shader && surface.shader->contentFlags && 
+		     !(surface.shader->contentFlags & CONTENTS_SOLID) ) {
+			continue;
+		}
+		
+		// Create a shadow depth material for this surface
+		Material shadowMaterial;
+		shadowMaterial.shaderBinder = &BindShaderShadowDepth;
+		shadowMaterial.stateBits = GLS_DEPTHFUNC_LESS;
+		shadowMaterial.cullType = cullType_t::CT_FRONT_SIDED;
+		shadowMaterial.usePolygonOffset = true;
+		shadowMaterial.stateBits = GLS_DEPTHFUNC_LESS;
+		shadowMaterial.cullType = cullType_t::CT_FRONT_SIDED;
+		shadowMaterial.usePolygonOffset = true;
+		
+		// Render the surface using the shadow material
+		// For now, we'll use a simplified approach
+		// In Phase 2, this will use proper indirect rendering
+		
+		// Set up tessellation for this surface
+		Tess_Begin( Tess_StageIteratorShadowDepth, surface.shader, false, 
+		           surface.lightMapNum, surface.fog, surface.bspSurface );
+		
+		// Add the surface geometry to tessellation
+		if ( surface.surface ) {
+			rb_surfaceTable[Util::ordinal(*surface.surface)]( surface.surface );
+		}
+		
+		// End tessellation batch
+		if ( tess.numVertexes > 0 && tess.numIndexes > 0 ) {
+			Tess_End();
+		}
+	}
+}
+
+// Shadow shader binding functions
+
+void BindShaderShadowDepth( Material* material ) {
+	// Bind the shadow depth shader
+	gl_shadowDepthShader->BindProgram( 0 );
+	
+	// Apply material state
+	GL_State( material->stateBits );
+	GL_Cull( material->cullType );
+	
+	if ( material->usePolygonOffset ) {
+		glEnable( GL_POLYGON_OFFSET_FILL );
+		GL_PolygonOffset( r_shadowBias.Get(), 1.0f );
+	}
+}
+
+void ProcessMaterialShadowDepth( Material* material, shaderStage_t* pStage, MaterialSurface* surface ) {
+	// For shadow depth rendering, we only need basic processing
+	// No complex material properties are needed for depth-only rendering
+	
+	// For Phase 1, we keep this simple - no alpha testing or texture binding
+	// This will be enhanced in Phase 2 if needed
 }
