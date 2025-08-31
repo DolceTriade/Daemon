@@ -92,7 +92,7 @@ void ShadowMapManager::EndFrame() {
 
 bool ShadowMapManager::IsShadowMappingEnabled() const {
 	// Shadow mapping requires material system to be enabled
-	if (!glConfig2.usingMaterialSystem) {
+	if (!glConfig.usingMaterialSystem) {
 		return false;
 	}
 
@@ -705,7 +705,7 @@ void ShadowMapManager::RenderShadowCasters(shadowAtlas_t* atlas, shadowMap_t* sh
 
 	// Set up view parameters for the light's perspective
 	viewParms_t lightViewParms = {};
-	
+
 	// Basic viewport setup for the shadow map
 	lightViewParms.viewportX = 0;
 	lightViewParms.viewportY = 0;
@@ -721,12 +721,12 @@ void ShadowMapManager::RenderShadowCasters(shadowAtlas_t* atlas, shadowMap_t* sh
 		Log::Warn("Failed to invert light view matrix for shadow rendering");
 		return;
 	}
-	
+
 	// Extract light position (translation part of inverse view matrix)
 	lightViewParms.orientation.origin[0] = invLightViewMatrix[12];
 	lightViewParms.orientation.origin[1] = invLightViewMatrix[13];
 	lightViewParms.orientation.origin[2] = invLightViewMatrix[14];
-	
+
 	// Extract light orientation (rotation part of inverse view matrix)
 	for (int i = 0; i < 3; i++) {
 		lightViewParms.orientation.axis[0][i] = invLightViewMatrix[i * 4 + 0];

@@ -382,7 +382,7 @@ static void GLSL_InitGPUShadersOrError()
 	}
 
 	// Load shadow depth shader if shadow mapping is enabled
-	if ( glConfig2.usingMaterialSystem && r_shadows.Get() >= Util::ordinal(shadowingMode_t::SHADOWING_ESM16) )
+	if ( glConfig.usingMaterialSystem && r_shadows.Get() >= Util::ordinal(shadowingMode_t::SHADOWING_ESM16) )
 	{
 		gl_shaderManager.LoadShader( gl_shadowDepthShader );
 		gl_shadowDepthShader->MarkProgramForBuilding( 0 );
@@ -832,7 +832,7 @@ void ProcessShaderLightMapping( const shaderStage_t* pStage ) {
 	gl_lightMappingShader->SetPhysicalShading( pStage->enablePhysicalMapping );
 
 	// Enable shadow mapping if using material system and shadow mapping is enabled
-	if ( glConfig2.usingMaterialSystem && R_ShadowMappingEnabled() )
+	if ( glConfig.usingMaterialSystem && R_ShadowMappingEnabled() )
 	{
 		gl_lightMappingShaderMaterial->SetShadowMapping( true );
 	}
@@ -1243,7 +1243,7 @@ void Render_lightMapping( shaderStage_t *pStage )
 	}
 
 	// bind shadow mapping uniforms
-	if ( glConfig2.usingMaterialSystem && R_ShadowMappingEnabled() )
+	if ( glConfig.usingMaterialSystem && R_ShadowMappingEnabled() )
 	{
 
 		// bind u_ShadowAtlas
