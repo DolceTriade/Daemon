@@ -2094,6 +2094,88 @@ void R_RenderView( viewParms_t *parms )
 
 /*
 ================
+R_GatherShadowView
+
+Gather-only path to build drawSurfs for a light-space view without
+enqueuing backend draw commands. Uses a provided projection matrix
+and computes frustum from Projection*View.
+================
+*/
+void R_GatherShadowView( const viewParms_t *inView, const matrix_t projectionMatrix, viewParms_t *outView )
+{
+	if ( inView->viewportWidth <= 0 || inView->viewportHeight <= 0 ) {
+		*outView = {};
+		return;
+	}
+
+	int firstDrawSurf = tr.refdef.numDrawSurfs;
+
+	// Seed view parms and build world matrices from orientation
+	tr.viewParms = *inView;
+	tr.viewParms.frameSceneNum = tr.frameSceneNum;
+	tr.viewParms.frameCount = tr.frameCount;
+	// Do not increment tr.viewCount here to avoid interfering with camera views
+
+	// Setup world matrix from orientation
+	R_RotateForViewer();
+
+	// Override projection with light-space projection
+	MatrixCopy( projectionMatrix, tr.viewParms.projectionMatrix );
+	MatrixCopy( projectionMatrix, tr.viewParms.projectionMatrixNonPortal );
+
+	// Build frustum from Projection * View
+	matrix_t mvp;
+	MatrixMultiply( tr.viewParms.projectionMatrix, tr.viewParms.world.viewMatrix, mvp );
+	R_SetupFrustum2( tr.viewParms.frustum, mvp );
+
+	// Gather world/entity draw surfaces
+	if ( glConfig.usingMaterialSystem && !r_materialSystemSkip.Get() ) {
+		// Material system path: queue cull and autosprites
+		tr.viewParms.viewID = tr.viewCount; // stable but unused here
+		materialSystem.QueueSurfaceCull( tr.viewParms.viewID, tr.viewParms.pvsOrigin, (frustum_t*) tr.viewParms.frustum );
+		materialSystem.AddAutospriteSurfaces();
+	} else {
+		R_AddWorldSurfaces();
+	}
+
+	R_AddPolygonSurfaces();
+	tr.orientation = tr.viewParms.world;
+	R_AddEntitySurfaces();
+
+	// Assign view draw range and sort
+	tr.viewParms.drawSurfs = tr.refdef.drawSurfs + firstDrawSurf;
+	tr.viewParms.numDrawSurfs = tr.refdef.numDrawSurfs - firstDrawSurf;
+
+	// Sort the draw surfaces and compute firstDrawSurf[] offsets (no command emission)
+	if ( tr.viewParms.numDrawSurfs > MAX_DRAWSURFS ) {
+		tr.viewParms.numDrawSurfs = MAX_DRAWSURFS;
+	}
+
+	std::sort( tr.viewParms.drawSurfs, tr.viewParms.drawSurfs + tr.viewParms.numDrawSurfs,
+	           []( const drawSurf_t &a, const drawSurf_t &b ) {
+	               return a.sort < b.sort;
+	           } );
+
+	int sort = Util::ordinal( shaderSort_t::SS_BAD ) - 1;
+	for ( int i = 0; i < tr.viewParms.numDrawSurfs; i++ ) {
+		shader_t* shader = tr.viewParms.drawSurfs[ i ].shader;
+		if ( shader->sort == Util::ordinal(shaderSort_t::SS_BAD) ) {
+			Sys::Drop( "Shader '%s'with sort == SS_BAD", shader->name );
+		}
+		while ( sort < Util::ordinal( shaderSort_t::SS_NUM_SORTS ) - 1 && shader->sort > sort ) {
+			tr.viewParms.firstDrawSurf[ ++sort ] = i;
+		}
+	}
+	while ( sort < Util::ordinal( shaderSort_t::SS_NUM_SORTS ) ) {
+		tr.viewParms.firstDrawSurf[ ++sort ] = tr.viewParms.numDrawSurfs;
+	}
+
+	// Output
+	*outView = tr.viewParms;
+}
+
+/*
+================
 R_RenderPostProcess
 
 Render Post Process effects that must only happen once all views for a scene are rendered

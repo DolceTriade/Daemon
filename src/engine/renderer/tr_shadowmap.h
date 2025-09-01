@@ -63,19 +63,19 @@ public:
 	void FreeAtlasRegion(shadowAtlas_t* atlas, const vec2_t* offset);
 
 	// Rendering
-	void RenderShadowMaps();
-	void RenderShadowCasters(shadowAtlas_t* atlas, shadowMap_t* shadowMap);
-	
-	// Debug
-	void DebugRenderShadowAtlas();
+    void RenderShadowMaps();
+    void RenderShadowCasters(shadowAtlas_t* atlas, shadowMap_t* shadowMap);
+    
+    // Debug
+    void DebugRenderShadowAtlas();
 
 	// Light management
 	bool SetupLightShadows(refLight_t* light);
 	void UpdateCascadeSplits(lightShadowInfo_t* lightShadow, const viewParms_t* viewParms);
 
-	// Utility
-	bool IsShadowMappingEnabled() const;
-	shadowingMode_t GetShadowTechnique() const;
+    // Utility
+    bool IsShadowMappingEnabled() const;
+    shadowingMode_t GetShadowTechnique() const;
 
 	// Atlas access
 	image_t* GetShadowAtlas(const shadowAtlas_t* atlas) const;
@@ -84,7 +84,10 @@ public:
 	void GetShadowMatrices(matrix_t* matrices, int maxMatrices) const;
 	void GetShadowLightInfo(vec4_t* lightInfo, int maxLights) const;
 	void GetCascadeSplits(vec4_t* splits, int maxLights) const;
-	int GetNumShadowLights() const;
+    int GetNumShadowLights() const;
+
+    // Frontend: build per-cascade views (drawSurfs + sort) from precomputed light matrices
+    void BuildShadowViews();
 
 private:
 	// These members are now part of shadowData_t

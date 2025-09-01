@@ -299,7 +299,7 @@ void RE_AddDynamicLightToSceneET( const vec3_t org, float radius, float intensit
 
 	if ( flags & REF_INVERSE_DLIGHT )
 	{
-		R_AddShadowLight( org, radius, intensity, r, g, b, hShader, flags );
+		//R_AddShadowLight( org, radius, intensity, r, g, b, hShader, flags );
 		return;
 	}
 
@@ -625,9 +625,12 @@ void RE_RenderScene( const refdef_t *fd )
 
 	VectorCopy( fd->vieworg, parms.pvsOrigin );
 	Vector4Copy( fd->gradingWeights, parms.gradingWeights );
-	if ( R_ShadowMappingEnabled() ) {
-		R_BeginShadowMapping();
-	}
+    if ( R_ShadowMappingEnabled() ) {
+        R_BeginShadowMapping();
+        // Frontend prepares shadow data so backend is draw-only
+        shadowMapManager.UpdateShadowMaps();
+        shadowMapManager.BuildShadowViews();
+    }
 	R_AddClearBufferCmd();
 	R_AddSetupLightsCmd();
 

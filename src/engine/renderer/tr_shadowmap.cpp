@@ -459,35 +459,41 @@ void ShadowMapManager::AddShadowLight(const vec3_t org, float radius, float inte
 }
 
 void ShadowMapManager::UpdateShadowMaps() {
-	shadowData_t *sd = &backEndData[backEnd.smpFrame]->shadowData;
+    shadowData_t *sd = &backEndData[backEnd.smpFrame]->shadowData;
 
-	// Track frame changes
-	static int lastFrameCount = -1;
-	if (lastFrameCount != tr.frameCount) {
-		lastFrameCount = tr.frameCount;
-		Log::Debug("=== UPDATE SHADOW MAPS FRAME %d ===", tr.frameCount);
-	}
+    // Track frame changes
+    static int lastFrameCount = -1;
+    if (lastFrameCount != tr.frameCount) {
+        lastFrameCount = tr.frameCount;
+        Log::Debug("=== UPDATE SHADOW MAPS FRAME %d ===", tr.frameCount);
+    }
 
-	Log::Debug("Updating shadow maps: %d shadow-only lights collected, max allowed: %d, current shadow lights: %d",
-	          sd->numShadowOnlyLights, r_shadowLights.Get(), sd->numShadowLights);
+    // Tiled forward alignment: build shadows for the first N scene lights so
+    // indices match the light buffer order used by tiling and shading.
+    const int maxShadowLights = r_shadowLights.Get();
+    const int sceneNumLights = tr.refdef.numLights;
+    refLight_t* sceneLights = tr.refdef.lights;
 
-	int lightsProcessed = 0;
-	for (int i = 0; i < sd->numShadowOnlyLights && sd->numShadowLights < r_shadowLights.Get(); i++) {
-		refLight_t* light = &sd->shadowOnlyLights[i];
-		Log::Debug("Setting up shadow for light %d at (%.1f, %.1f, %.1f)",
-		          i, light->origin[0], light->origin[1], light->origin[2]);
+    Log::Debug("Updating shadow maps from scene lights: %d available, max shadowed: %d", sceneNumLights, maxShadowLights);
 
-		if (SetupLightShadows(light)) {
-			Log::Debug("Successfully set up shadow for light %d", i);
-			lightsProcessed++;
-		} else {
-			Log::Debug("Failed to set up shadow for light %d", i);
-		}
-	}
+    int lightsProcessed = 0;
+    for (int i = 0; i < sceneNumLights && sd->numShadowLights < maxShadowLights; i++) {
+        refLight_t* light = &sceneLights[i];
+        Log::Debug("Setting up shadow for scene light %d at (%.1f, %.1f, %.1f)",
+                   i, light->origin[0], light->origin[1], light->origin[2]);
 
-	Log::Debug("Updated shadow maps for %d shadow lights (%d shadow-only lights collected, %d processed)",
-	          sd->numShadowLights, sd->numShadowOnlyLights, lightsProcessed);
-	sd->numShadowOnlyLights = 0;
+        if (SetupLightShadows(light)) {
+            Log::Debug("Successfully set up shadow for scene light %d", i);
+            lightsProcessed++;
+        } else {
+            Log::Debug("Failed to set up shadow for scene light %d", i);
+        }
+    }
+
+    Log::Debug("Updated shadow maps: %d shadowed lights prepared from %d scene lights", sd->numShadowLights, sceneNumLights);
+
+    // Clear any legacy shadow-only lights; they are not part of the tiled light list
+    sd->numShadowOnlyLights = 0;
 }
 
 void ShadowMapManager::RenderShadowMaps() {
@@ -656,11 +662,15 @@ void ShadowMapManager::RenderShadowMaps() {
 			Log::Debug("  [%f, %f, %f, %f]", shadowMap->lightProjectionMatrix[2], shadowMap->lightProjectionMatrix[6], shadowMap->lightProjectionMatrix[10], shadowMap->lightProjectionMatrix[14]);
 			Log::Debug("  [%f, %f, %f, %f]", shadowMap->lightProjectionMatrix[3], shadowMap->lightProjectionMatrix[7], shadowMap->lightProjectionMatrix[11], shadowMap->lightProjectionMatrix[15]);
 
-			// Render shadow casters for this light/cascade
-			Log::Debug("About to render shadow casters for light %d cascade %d at atlas (%d, %d) size (%d, %d)",
+
+			// Draw using precomputed frontend viewParms for this cascade
+			Log::Debug("Rendering precomputed shadow view for light %d cascade %d at atlas (%d, %d) size (%d, %d)",
 			          lightIndex, cascade, shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
 			          shadowMap->size[0], shadowMap->size[1]);
-			RenderShadowCasters(&sd->shadowAtlas, shadowMap);
+
+			// Use the gathered view parms
+			backEnd.viewParms = shadowMap->viewParms;
+			RB_DrawPreparedDepthSurfaces();
 			GL_PopMatrix();
 
 			Log::Debug("Rendered shadow map for light %d cascade %d at atlas (%d, %d) size (%d, %d)",
@@ -678,6 +688,64 @@ void ShadowMapManager::RenderShadowMaps() {
 	R_BindFBO(oldFBO);
 
 	Log::Debug("Shadow atlas rendering complete for %d lights (actually rendered: %d)", sd->numShadowLights, renderedLights);
+}
+
+void ShadowMapManager::BuildShadowViews() {
+    shadowData_t *sd = &backEndData[backEnd.smpFrame]->shadowData;
+
+    if (sd->numShadowLights == 0) {
+        return;
+    }
+
+    // Build a gather-only view for each light cascade
+    for (int lightIndex = 0; lightIndex < sd->numShadowLights; lightIndex++) {
+        lightShadowInfo_t* lightShadow = &sd->lightShadows[lightIndex];
+
+        for (int cascade = 0; cascade < lightShadow->numCascades; cascade++) {
+            shadowMap_t* shadowMap = &lightShadow->cascades[cascade];
+
+            // Build viewParms based on light view/projection matrices
+            viewParms_t inView = {};
+
+            // Use shadow map resolution for viewport; atlas offset handled in backend
+            inView.viewportX = 0;
+            inView.viewportY = 0;
+            inView.viewportWidth = (int)shadowMap->size[0];
+            inView.viewportHeight = (int)shadowMap->size[1];
+            inView.scissorX = inView.viewportX;
+            inView.scissorY = inView.viewportY;
+            inView.scissorWidth = inView.viewportWidth;
+            inView.scissorHeight = inView.viewportHeight;
+
+            // Extract light origin/axes from inverse of view matrix
+            matrix_t invLightViewMatrix;
+            MatrixCopy(shadowMap->lightViewMatrix, invLightViewMatrix);
+            MatrixInverse(invLightViewMatrix);
+
+            // origin from last column
+            inView.orientation.origin[0] = invLightViewMatrix[12];
+            inView.orientation.origin[1] = invLightViewMatrix[13];
+            inView.orientation.origin[2] = invLightViewMatrix[14];
+            // axes from rotation part
+            for (int i = 0; i < 3; i++) {
+                inView.orientation.axis[0][i] = invLightViewMatrix[i * 4 + 0];
+                inView.orientation.axis[1][i] = invLightViewMatrix[i * 4 + 1];
+                inView.orientation.axis[2][i] = invLightViewMatrix[i * 4 + 2];
+            }
+
+            VectorCopy(inView.orientation.origin, inView.pvsOrigin);
+            inView.portalLevel = 0;
+            inView.fovX = 90.0f; // unused for custom projection
+            inView.fovY = 90.0f;
+
+            // Gather using light projection
+            viewParms_t outView = {};
+            R_GatherShadowView(&inView, shadowMap->lightProjectionMatrix, &outView);
+
+            // Store for backend
+            shadowMap->viewParms = outView;
+        }
+    }
 }
 
 void ShadowMapManager::RenderShadowCasters(shadowAtlas_t* atlas, shadowMap_t* shadowMap) {

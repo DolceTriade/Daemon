@@ -2763,6 +2763,16 @@ static void RB_RenderView( bool depthPass )
 	backEnd.pc.c_views++;
 }
 
+// Public helper to render the depth-only pass for the current prepared backEnd.viewParms.
+// Used by the shadow map backend after the frontend prepared drawSurfs.
+void RB_DrawPreparedDepthSurfaces()
+{
+    if ( glConfig.usingMaterialSystem ) {
+        materialSystem.RenderMaterials( shaderSort_t::SS_DEPTH, shaderSort_t::SS_DEPTH, backEnd.viewParms.viewID );
+    }
+    RB_RenderDrawSurfaces( shaderSort_t::SS_DEPTH, shaderSort_t::SS_DEPTH, DRAWSURFACES_ALL );
+}
+
 /*
 ==================
 RB_RenderPostProcess
@@ -3824,18 +3834,17 @@ RB_RenderShadowMaps
 */
 void RB_RenderShadowMaps()
 {
-	GLIMP_LOGCOMMENT( "--- RB_RenderShadowMaps ---" );
+    GLIMP_LOGCOMMENT( "--- RB_RenderShadowMaps ---" );
 
-	if ( !R_ShadowMappingEnabled() ) {
-		Log::Debug("Shadow mapping not enabled, skipping shadow map rendering");
-		return;
-	}
+    if ( !R_ShadowMappingEnabled() ) {
+        Log::Debug("Shadow mapping not enabled, skipping shadow map rendering");
+        return;
+    }
 
-	Log::Debug("Shadow mapping enabled, proceeding with shadow map rendering");
+    Log::Debug("Shadow mapping enabled, proceeding with shadow map rendering");
 
-	// Generate shadow maps for shadow-only lights
-	shadowMapManager.UpdateShadowMaps();
-	shadowMapManager.RenderShadowMaps();
+    // Render shadow maps using data prepared on the frontend
+    shadowMapManager.RenderShadowMaps();
 
 	Log::Debug("Shadow map generation complete");
 

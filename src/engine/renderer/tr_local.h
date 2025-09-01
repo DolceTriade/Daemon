@@ -2431,6 +2431,9 @@ struct shadowMap_t {
     // Cascade data (for directional lights)
     float cascadeSplit;
     vec3_t cascadeBounds[2];
+
+    // Precomputed frontend draw data for backend depth rendering
+    viewParms_t viewParms;
 };
 
 struct shadowAtlas_t {
@@ -2889,6 +2892,8 @@ inline bool checkGLErrors()
 	int            PortalOffScreenOrOutOfRange( const drawSurf_t* drawSurf, screenRect_t& surfRect );
 	bool           R_MirrorViewBySurface( drawSurf_t* drawSurf );
 	void           R_RenderView( viewParms_t *parms );
+	// Gather-only version for shadow views: builds drawSurfs and firstDrawSurf without enqueuing commands
+	void           R_GatherShadowView( const viewParms_t *inView, const matrix_t projectionMatrix, viewParms_t *outView );
 	void           R_RenderPostProcess();
 
 	void           R_AddMDVSurfaces( trRefEntity_t *e );
@@ -3496,6 +3501,7 @@ void GLimp_LogComment_( std::string comment );
 	void RB_RenderThread();
 	void RB_ExecuteRenderCommands( const void *data );
 	void RB_RenderShadowMaps();
+	void RB_DrawPreparedDepthSurfaces();
 
 	/*
 	=============================================================
