@@ -65,11 +65,12 @@ void ShadowMapManager::Shutdown(shadowData_t *sd) {
 }
 
 void ShadowMapManager::BeginFrame() {
-	if (!IsShadowMappingEnabled()) {
-		return;
-	}
+    if (!IsShadowMappingEnabled()) {
+        return;
+    }
 
-	shadowData_t *sd = &backEndData[backEnd.smpFrame]->shadowData;
+    // Frontend writes to the current frontend buffer (tr.smpFrame)
+    shadowData_t *sd = &backEndData[tr.smpFrame]->shadowData;
 	// Reset per-frame data
 	sd->numShadowLights = 0;
 	// Don't reset numShadowOnlyLights here - they're set during frontend processing
@@ -84,10 +85,11 @@ void ShadowMapManager::BeginFrame() {
 }
 
 void ShadowMapManager::EndFrame() {
-	if (!IsShadowMappingEnabled()) {
-		return;
-	}
-	shadowData_t *sd = &backEndData[backEnd.smpFrame]->shadowData;
+    if (!IsShadowMappingEnabled()) {
+        return;
+    }
+    // Frontend writes to the current frontend buffer (tr.smpFrame)
+    shadowData_t *sd = &backEndData[tr.smpFrame]->shadowData;
 }
 
 bool ShadowMapManager::IsShadowMappingEnabled() const {
@@ -280,7 +282,8 @@ void ShadowMapManager::SetupEVSMParams(shadowMap_t* shadowMap) {
 }
 
 bool ShadowMapManager::SetupLightShadows(refLight_t* light) {
-	shadowData_t *sd = &backEndData[backEnd.smpFrame]->shadowData;
+    // Frontend builds shadow descriptors in the frontend buffer
+    shadowData_t *sd = &backEndData[tr.smpFrame]->shadowData;
 	int lightIndex = sd->numShadowLights;
 	if (lightIndex >= MAX_SHADOW_LIGHTS) {
 		Log::Warn("Light index %d exceeds MAX_SHADOW_LIGHTS (%d)", lightIndex, MAX_SHADOW_LIGHTS);
@@ -433,7 +436,8 @@ void ShadowMapManager::SetupLightMatrix(refLight_t* light, shadowMap_t* shadowMa
 }
 
 void ShadowMapManager::AddShadowLight(const vec3_t org, float radius, float intensity, float r, float g, float b, qhandle_t hShader, int flags ) {
-	shadowData_t *sd = &backEndData[backEnd.smpFrame]->shadowData;
+    // Frontend-only path, write to frontend buffer
+    shadowData_t *sd = &backEndData[tr.smpFrame]->shadowData;
 	if (sd->numShadowOnlyLights >= MAX_SHADOW_LIGHTS) {
 		Log::Debug("Shadow light limit reached (%d), not adding new light", MAX_SHADOW_LIGHTS);
 		return;
@@ -459,7 +463,8 @@ void ShadowMapManager::AddShadowLight(const vec3_t org, float radius, float inte
 }
 
 void ShadowMapManager::UpdateShadowMaps() {
-    shadowData_t *sd = &backEndData[backEnd.smpFrame]->shadowData;
+    // Frontend updates current frame buffer
+    shadowData_t *sd = &backEndData[tr.smpFrame]->shadowData;
 
     // Track frame changes
     static int lastFrameCount = -1;
@@ -650,17 +655,10 @@ void ShadowMapManager::RenderShadowMaps() {
 			GL_Viewport(shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
 			           shadowMap->size[0], shadowMap->size[1]);
 
-			// Set up matrices for light perspective
-			GL_PushMatrix();
-			GL_LoadProjectionMatrix(shadowMap->lightProjectionMatrix);
-			GL_LoadModelViewMatrix(shadowMap->lightViewMatrix);
-
-			// Log matrix info for debugging
-			Log::Debug("Light projection matrix:");
-			Log::Debug("  [%f, %f, %f, %f]", shadowMap->lightProjectionMatrix[0], shadowMap->lightProjectionMatrix[4], shadowMap->lightProjectionMatrix[8], shadowMap->lightProjectionMatrix[12]);
-			Log::Debug("  [%f, %f, %f, %f]", shadowMap->lightProjectionMatrix[1], shadowMap->lightProjectionMatrix[5], shadowMap->lightProjectionMatrix[9], shadowMap->lightProjectionMatrix[13]);
-			Log::Debug("  [%f, %f, %f, %f]", shadowMap->lightProjectionMatrix[2], shadowMap->lightProjectionMatrix[6], shadowMap->lightProjectionMatrix[10], shadowMap->lightProjectionMatrix[14]);
-			Log::Debug("  [%f, %f, %f, %f]", shadowMap->lightProjectionMatrix[3], shadowMap->lightProjectionMatrix[7], shadowMap->lightProjectionMatrix[11], shadowMap->lightProjectionMatrix[15]);
+			// Load matrices from precomputed view parms
+			backEnd.viewParms = shadowMap->viewParms;
+			GL_LoadProjectionMatrix( backEnd.viewParms.projectionMatrix );
+			GL_LoadModelViewMatrix( backEnd.viewParms.world.modelViewMatrix );
 
 
 			// Draw using precomputed frontend viewParms for this cascade
@@ -668,10 +666,8 @@ void ShadowMapManager::RenderShadowMaps() {
 			          lightIndex, cascade, shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
 			          shadowMap->size[0], shadowMap->size[1]);
 
-			// Use the gathered view parms
-			backEnd.viewParms = shadowMap->viewParms;
+			// Draw depth surfaces for the precomputed view
 			RB_DrawPreparedDepthSurfaces();
-			GL_PopMatrix();
 
 			Log::Debug("Rendered shadow map for light %d cascade %d at atlas (%d, %d) size (%d, %d)",
 			          lightIndex, cascade, shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
@@ -691,7 +687,8 @@ void ShadowMapManager::RenderShadowMaps() {
 }
 
 void ShadowMapManager::BuildShadowViews() {
-    shadowData_t *sd = &backEndData[backEnd.smpFrame]->shadowData;
+    // Frontend builds gathered views in the frontend buffer
+    shadowData_t *sd = &backEndData[tr.smpFrame]->shadowData;
 
     if (sd->numShadowLights == 0) {
         return;

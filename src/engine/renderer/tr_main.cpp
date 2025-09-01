@@ -2111,6 +2111,7 @@ void R_GatherShadowView( const viewParms_t *inView, const matrix_t projectionMat
 	int firstDrawSurf = tr.refdef.numDrawSurfs;
 
 	// Seed view parms and build world matrices from orientation
+	uint viewID = tr.viewParms.viewID;
 	tr.viewParms = *inView;
 	tr.viewParms.frameSceneNum = tr.frameSceneNum;
 	tr.viewParms.frameCount = tr.frameCount;
@@ -2131,7 +2132,7 @@ void R_GatherShadowView( const viewParms_t *inView, const matrix_t projectionMat
 	// Gather world/entity draw surfaces
 	if ( glConfig.usingMaterialSystem && !r_materialSystemSkip.Get() ) {
 		// Material system path: queue cull and autosprites
-		tr.viewParms.viewID = tr.viewCount; // stable but unused here
+		tr.viewParms.viewID = viewID;
 		materialSystem.QueueSurfaceCull( tr.viewParms.viewID, tr.viewParms.pvsOrigin, (frustum_t*) tr.viewParms.frustum );
 		materialSystem.AddAutospriteSurfaces();
 	} else {
