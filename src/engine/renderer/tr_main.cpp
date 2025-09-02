@@ -2110,6 +2110,10 @@ void R_GatherShadowView( const viewParms_t *inView, const matrix_t projectionMat
 
 	int firstDrawSurf = tr.refdef.numDrawSurfs;
 
+	// Preserve current global view/orientation to avoid leaking into the main view path
+	viewParms_t savedViewParms = tr.viewParms;
+	orientationr_t savedOrientation = tr.orientation;
+
 	// Seed view parms and build world matrices from orientation
 	uint viewID = tr.viewParms.viewID;
 	tr.viewParms = *inView;
@@ -2129,15 +2133,8 @@ void R_GatherShadowView( const viewParms_t *inView, const matrix_t projectionMat
 	MatrixMultiply( tr.viewParms.projectionMatrix, tr.viewParms.world.viewMatrix, mvp );
 	R_SetupFrustum2( tr.viewParms.frustum, mvp );
 
-	// Gather world/entity draw surfaces
-	if ( glConfig.usingMaterialSystem && !r_materialSystemSkip.Get() ) {
-		// Material system path: queue cull and autosprites
-		tr.viewParms.viewID = viewID;
-		materialSystem.QueueSurfaceCull( tr.viewParms.viewID, tr.viewParms.pvsOrigin, (frustum_t*) tr.viewParms.frustum );
-		materialSystem.AddAutospriteSurfaces();
-	} else {
-		R_AddWorldSurfaces();
-	}
+	// Gather world/entity draw surfaces (avoid material system to prevent interference)
+	R_AddWorldSurfaces();
 
 	R_AddPolygonSurfaces();
 	tr.orientation = tr.viewParms.world;
@@ -2173,6 +2170,10 @@ void R_GatherShadowView( const viewParms_t *inView, const matrix_t projectionMat
 
 	// Output
 	*outView = tr.viewParms;
+
+	// Restore globals
+	tr.viewParms = savedViewParms;
+	tr.orientation = savedOrientation;
 }
 
 /*

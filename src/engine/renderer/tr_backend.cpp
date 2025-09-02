@@ -2767,9 +2767,8 @@ static void RB_RenderView( bool depthPass )
 // Used by the shadow map backend after the frontend prepared drawSurfs.
 void RB_DrawPreparedDepthSurfaces()
 {
-    if ( glConfig.usingMaterialSystem ) {
-        materialSystem.RenderMaterials( shaderSort_t::SS_DEPTH, shaderSort_t::SS_DEPTH, backEnd.viewParms.viewID );
-    }
+    // For shadow map rendering we avoid material system paths and render
+    // depth-only surfaces directly to the currently bound FBO.
     RB_RenderDrawSurfaces( shaderSort_t::SS_DEPTH, shaderSort_t::SS_DEPTH, DRAWSURFACES_ALL );
 }
 

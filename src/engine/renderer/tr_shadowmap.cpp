@@ -481,15 +481,30 @@ void ShadowMapManager::UpdateShadowMaps() {
 
     Log::Debug("Updating shadow maps from scene lights: %d available, max shadowed: %d", sceneNumLights, maxShadowLights);
 
+    // Compute atlas capacity in tiles of size r_shadowMapSize
+    int tileSize = r_shadowMapSize.Get();
+    int tilesPerDim = std::max(1, sd->shadowAtlas.size / tileSize);
+    int atlasCapacity = tilesPerDim * tilesPerDim;
+    int usedTiles = sd->shadowAtlas.allocatedRegions; // reset earlier in BeginFrame
+
     int lightsProcessed = 0;
     for (int i = 0; i < sceneNumLights && sd->numShadowLights < maxShadowLights; i++) {
         refLight_t* light = &sceneLights[i];
         Log::Debug("Setting up shadow for scene light %d at (%.1f, %.1f, %.1f)",
                    i, light->origin[0], light->origin[1], light->origin[2]);
 
+        // Tiles required for this light
+        int requiredTiles = (light->rlType == refLightType_t::RL_DIRECTIONAL) ? r_shadowCascades.Get() : 1;
+        if (usedTiles + requiredTiles > atlasCapacity) {
+            Log::Warn("Skipping light %d: not enough atlas space (need %d tiles, have %d/%d)",
+                      i, requiredTiles, atlasCapacity - usedTiles, atlasCapacity);
+            continue;
+        }
+
         if (SetupLightShadows(light)) {
             Log::Debug("Successfully set up shadow for scene light %d", i);
             lightsProcessed++;
+            usedTiles += requiredTiles;
         } else {
             Log::Debug("Failed to set up shadow for scene light %d", i);
         }
@@ -502,7 +517,7 @@ void ShadowMapManager::UpdateShadowMaps() {
 }
 
 void ShadowMapManager::RenderShadowMaps() {
-	shadowData_t *sd = &backEndData[backEnd.smpFrame]->shadowData;
+    shadowData_t *sd = &backEndData[backEnd.smpFrame]->shadowData;
 
 	// Track frame changes to verify we're actually rendering each frame
 	static int lastFrameCount = -1;
@@ -625,16 +640,20 @@ void ShadowMapManager::RenderShadowMaps() {
 
 	Log::Debug("Enabled polygon offset with bias=%.3f", r_shadowBias.Get());
 
-	// Clear the entire shadow atlas once
-	// For depth-only techniques, we want depth=1.0 (farthest)
-	// For ESM/VSM techniques, we want color=1.0 (maximum depth value)
-	GL_ClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-	GL_ClearDepth(1.0);
+    // Clear the entire shadow atlas once
+    // For depth-only techniques, we want depth=1.0 (farthest)
+    // For ESM/VSM techniques, we want color=1.0 (maximum depth value)
+    GL_ClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+    GL_ClearDepth(1.0);
+    glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
 
 	Log::Debug("Cleared shadow atlas with white color (1,1,1,1) and depth=1.0 - this should happen EVERY frame");
 
-	// Render shadow map for each shadow light
-	int renderedLights = 0;
+    // Save/restore the current view to avoid leaking matrices/state to main view
+    viewParms_t savedView = backEnd.viewParms;
+
+    // Render shadow map for each shadow light
+    int renderedLights = 0;
 	for (int lightIndex = 0; lightIndex < sd->numShadowLights; lightIndex++) {
 		lightShadowInfo_t* lightShadow = &sd->lightShadows[lightIndex];
 
@@ -655,10 +674,10 @@ void ShadowMapManager::RenderShadowMaps() {
 			GL_Viewport(shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
 			           shadowMap->size[0], shadowMap->size[1]);
 
-			// Load matrices from precomputed view parms
-			backEnd.viewParms = shadowMap->viewParms;
-			GL_LoadProjectionMatrix( backEnd.viewParms.projectionMatrix );
-			GL_LoadModelViewMatrix( backEnd.viewParms.world.modelViewMatrix );
+            // Load matrices from precomputed view parms
+            backEnd.viewParms = shadowMap->viewParms;
+            GL_LoadProjectionMatrix( backEnd.viewParms.projectionMatrix );
+            GL_LoadModelViewMatrix( backEnd.viewParms.world.modelViewMatrix );
 
 
 			// Draw using precomputed frontend viewParms for this cascade
@@ -675,13 +694,21 @@ void ShadowMapManager::RenderShadowMaps() {
 		}
 	}
 
-	// Restore engine state
-	glDisable(GL_POLYGON_OFFSET_FILL);
-	GL_State(oldStateBits);
-	GL_Viewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
-	// Restore scissor box (scissor test is always enabled by GL_SetDefaultState)
-	GL_Scissor(prevScissorBox[0], prevScissorBox[1], prevScissorBox[2], prevScissorBox[3]);
-	R_BindFBO(oldFBO);
+    // Restore engine state and original view
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    GL_State(oldStateBits);
+    GL_Viewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
+    // Restore scissor box (scissor test is always enabled by GL_SetDefaultState)
+    GL_Scissor(prevScissorBox[0], prevScissorBox[1], prevScissorBox[2], prevScissorBox[3]);
+    R_BindFBO(oldFBO);
+
+    // Hard-reset write masks to avoid any leakage if GL_State couldn't restore due to masks
+    GL_ColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
+    GL_DepthMask( GL_TRUE );
+
+    backEnd.viewParms = savedView;
+    GL_LoadProjectionMatrix( backEnd.viewParms.projectionMatrix );
+    GL_LoadModelViewMatrix( backEnd.viewParms.world.modelViewMatrix );
 
 	Log::Debug("Shadow atlas rendering complete for %d lights (actually rendered: %d)", sd->numShadowLights, renderedLights);
 }
@@ -713,6 +740,7 @@ void ShadowMapManager::BuildShadowViews() {
             inView.scissorY = inView.viewportY;
             inView.scissorWidth = inView.viewportWidth;
             inView.scissorHeight = inView.viewportHeight;
+            inView.viewID = 0; // avoid interfering with material system view tracking
 
             // Extract light origin/axes from inverse of view matrix
             matrix_t invLightViewMatrix;

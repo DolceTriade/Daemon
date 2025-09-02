@@ -631,7 +631,9 @@ void RE_RenderScene( const refdef_t *fd )
         shadowMapManager.UpdateShadowMaps();
         shadowMapManager.BuildShadowViews();
     }
-	R_AddClearBufferCmd();
+    // Ensure clear uses the main camera view parameters
+    tr.viewParms = parms;
+    R_AddClearBufferCmd();
 	R_AddSetupLightsCmd();
 
 	if ( glConfig.usingMaterialSystem ) {
