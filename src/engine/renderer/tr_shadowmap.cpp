@@ -588,9 +588,9 @@ void ShadowMapManager::RenderShadowMaps() {
 	int prevViewport[4] = {glState.viewportX, glState.viewportY, glState.viewportWidth, glState.viewportHeight};
 	int prevScissorBox[4] = {glState.scissorX, glState.scissorY, glState.scissorWidth, glState.scissorHeight};
 
-	// Bind shadow atlas FBO for rendering
-	FBO_t *oldFBO = glState.currentFBO;
-	R_BindFBO(sd->shadowAtlas.fbo);
+    // Bind shadow atlas FBO for rendering
+    FBO_t *oldFBO = glState.currentFBO;
+    R_BindFBO(sd->shadowAtlas.fbo);
 
 
 	// Check FBO completeness
@@ -640,7 +640,8 @@ void ShadowMapManager::RenderShadowMaps() {
 
 	Log::Debug("Enabled polygon offset with bias=%.3f", r_shadowBias.Get());
 
-    // Clear the entire shadow atlas once
+    // Set scissor to full atlas and clear once
+    GL_Scissor( 0, 0, sd->shadowAtlas.size, sd->shadowAtlas.size );
     // For depth-only techniques, we want depth=1.0 (farthest)
     // For ESM/VSM techniques, we want color=1.0 (maximum depth value)
     GL_ClearColor(1.0f, 1.0f, 1.0f, 1.0f);
@@ -669,10 +670,11 @@ void ShadowMapManager::RenderShadowMaps() {
 		for (int cascade = 0; cascade < lightShadow->numCascades; cascade++) {
 			shadowMap_t* shadowMap = &lightShadow->cascades[cascade];
 
-			// Set up rendering for this shadow map (viewport only)
-			// Make sure we're setting the full size of the shadow map region
-			GL_Viewport(shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
-			           shadowMap->size[0], shadowMap->size[1]);
+            // Set up rendering for this shadow map
+            GL_Viewport(shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
+                       shadowMap->size[0], shadowMap->size[1]);
+            GL_Scissor(shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
+                       shadowMap->size[0], shadowMap->size[1]);
 
             // Load matrices from precomputed view parms
             backEnd.viewParms = shadowMap->viewParms;
@@ -685,8 +687,68 @@ void ShadowMapManager::RenderShadowMaps() {
 			          lightIndex, cascade, shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
 			          shadowMap->size[0], shadowMap->size[1]);
 
-			// Draw depth surfaces for the precomputed view
-			RB_DrawPreparedDepthSurfaces();
+            // Draw depth surfaces for the precomputed view using depth-only iterator
+            // Render only the SS_DEPTH range collected during gather
+            {
+                // Based on RB_RenderDrawSurfaces but forcing Tess_StageIteratorShadowDepth
+                trRefEntity_t *entity = nullptr, *oldEntity = nullptr;
+                shader_t *shader = nullptr, *oldShader = nullptr;
+                int lightmapNum = -1, oldLightmapNum = -1;
+                int fogNum = -1, oldFogNum = -1;
+                bool depthRange = false, oldDepthRange = false;
+                int i;
+                drawSurf_t *drawSurf;
+                int first = backEnd.viewParms.firstDrawSurf[ Util::ordinal(shaderSort_t::SS_DEPTH) ];
+                int last  = backEnd.viewParms.firstDrawSurf[ Util::ordinal(shaderSort_t::SS_OPAQUE) + 1 ];
+
+                for ( i = first; i < last; i++ ) {
+                    drawSurf = &backEnd.viewParms.drawSurfs[ i ];
+                    if ( drawSurf->surface == nullptr ) continue;
+
+                    entity = drawSurf->entity;
+                    shader = drawSurf->shader;
+                    lightmapNum = drawSurf->lightmapNum();
+                    fogNum = drawSurf->fog;
+
+                    if ( shader != oldShader || lightmapNum != oldLightmapNum || fogNum != oldFogNum || ( entity != oldEntity && !(shader && shader->entityMergable) ) ) {
+                        if ( oldShader != nullptr ) {
+                            Tess_End();
+                        }
+                        Tess_Begin( Tess_StageIteratorShadowDepth, shader, false, lightmapNum, fogNum, drawSurf->bspSurface );
+                        oldShader = shader;
+                        oldLightmapNum = lightmapNum;
+                        oldFogNum = fogNum;
+                    }
+
+                    if ( entity != oldEntity ) {
+                        depthRange = false;
+                        if ( entity != &tr.worldEntity ) {
+                            backEnd.currentEntity = entity;
+                            R_RotateEntityForViewParms( backEnd.currentEntity, &backEnd.viewParms, &backEnd.orientation );
+                            if ( backEnd.currentEntity->e.renderfx & RF_DEPTHHACK ) depthRange = true;
+                        } else {
+                            backEnd.currentEntity = &tr.worldEntity;
+                            backEnd.orientation = backEnd.viewParms.world;
+                        }
+                        GL_LoadModelViewMatrix( backEnd.orientation.modelViewMatrix );
+
+                        if ( oldDepthRange != depthRange ) {
+                            if ( depthRange ) glDepthRange( 0, 0.3 ); else glDepthRange( 0, 1 );
+                            oldDepthRange = depthRange;
+                        }
+                        oldEntity = entity;
+                    }
+
+                    rb_surfaceTable[ Util::ordinal(*drawSurf->surface) ]( drawSurf->surface );
+                }
+
+                if ( oldShader != nullptr ) {
+                    Tess_End();
+                }
+
+                GL_LoadModelViewMatrix( backEnd.viewParms.world.modelViewMatrix );
+                if ( depthRange ) glDepthRange( 0, 1 );
+            }
 
 			Log::Debug("Rendered shadow map for light %d cascade %d at atlas (%d, %d) size (%d, %d)",
 			          lightIndex, cascade, shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
@@ -773,303 +835,6 @@ void ShadowMapManager::BuildShadowViews() {
     }
 }
 
-void ShadowMapManager::RenderShadowCasters(shadowAtlas_t* atlas, shadowMap_t* shadowMap) {
-	GLIMP_LOGCOMMENT("--- ShadowMapManager::RenderShadowCasters ---");
-
-	shadowingMode_t technique = shadowMap->technique;
-
-	// Track frame changes
-	static int lastFrameCount = -1;
-	static int renderCallCount = 0;
-
-	if (lastFrameCount != tr.frameCount) {
-		lastFrameCount = tr.frameCount;
-		renderCallCount = 0;
-	}
-
-	renderCallCount++;
-	Log::Debug("RenderShadowCasters #%d for technique %d at atlas (%d, %d) size (%d, %d)",
-	          renderCallCount, static_cast<int>(technique),
-	          shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
-	          shadowMap->size[0], shadowMap->size[1]);
-
-	// CORE FIX: Save the current camera view parameters
-	viewParms_t savedViewParms = tr.viewParms;
-
-	// Set up view parameters for the light's perspective
-	viewParms_t lightViewParms = {};
-
-	// Basic viewport setup for the shadow map
-	lightViewParms.viewportX = 0;
-	lightViewParms.viewportY = 0;
-	lightViewParms.viewportWidth = shadowMap->size[0];
-	lightViewParms.viewportHeight = shadowMap->size[1];
-	lightViewParms.frameSceneNum = savedViewParms.frameSceneNum;
-	lightViewParms.frameCount = savedViewParms.frameCount;
-
-	// Extract light position and orientation from the light view matrix
-	matrix_t invLightViewMatrix;
-	MatrixCopy(shadowMap->lightViewMatrix, invLightViewMatrix);
-	if (!MatrixInverse(invLightViewMatrix)) {
-		Log::Warn("Failed to invert light view matrix for shadow rendering");
-		return;
-	}
-
-	// Extract light position (translation part of inverse view matrix)
-	lightViewParms.orientation.origin[0] = invLightViewMatrix[12];
-	lightViewParms.orientation.origin[1] = invLightViewMatrix[13];
-	lightViewParms.orientation.origin[2] = invLightViewMatrix[14];
-
-	// Extract light orientation (rotation part of inverse view matrix)
-	for (int i = 0; i < 3; i++) {
-		lightViewParms.orientation.axis[0][i] = invLightViewMatrix[i * 4 + 0];
-		lightViewParms.orientation.axis[1][i] = invLightViewMatrix[i * 4 + 1];
-		lightViewParms.orientation.axis[2][i] = invLightViewMatrix[i * 4 + 2];
-	}
-
-	// Set up PVS origin for culling (use light position)
-	VectorCopy(lightViewParms.orientation.origin, lightViewParms.pvsOrigin);
-
-	// Copy the projection matrix from the shadow map
-	MatrixCopy(shadowMap->lightProjectionMatrix, lightViewParms.projectionMatrix);
-
-	Log::Debug("Light view setup: origin=(%.1f,%.1f,%.1f)",
-	          lightViewParms.orientation.origin[0],
-	          lightViewParms.orientation.origin[1],
-	          lightViewParms.orientation.origin[2]);
-
-	// CRITICAL: Call R_RenderView with the light's view parameters
-	// This will do all the heavy lifting: surface collection, culling, sorting, etc.
-	R_RenderView(&lightViewParms);
-
-	Log::Debug("R_RenderView completed for light perspective: %d surfaces collected",
-	          tr.viewParms.numDrawSurfs);
-
-	// Enable front-face culling for shadow maps to reduce shadow acne and improve performance
-	cullType_t oldCullType = glState.faceCulling;
-	GL_Cull(cullType_t::CT_FRONT_SIDED);
-
-	// Save the current entity and surface shader states
-	trRefEntity_t *oldEntity = backEnd.currentEntity;
-	shader_t *oldShader = nullptr;
-	int oldLightmapNum = -1;
-	int oldFogNum = -1;
-	bool oldDepthRange = false;
-	bool depthRange = false;
-
-	// Now use the surfaces collected from the light's perspective (in tr.viewParms)
-	int firstSurf = tr.viewParms.firstDrawSurf[Util::ordinal(shaderSort_t::SS_ENVIRONMENT_FOG)];
-	int lastSurf = tr.viewParms.firstDrawSurf[Util::ordinal(shaderSort_t::SS_OPAQUE) + 1];
-
-	// Validate surface range
-	if (firstSurf >= lastSurf || firstSurf < 0 || lastSurf > backEnd.viewParms.numDrawSurfs) {
-		// Use safer bounds
-		firstSurf = std::max(0, firstSurf);
-		lastSurf = std::min(backEnd.viewParms.numDrawSurfs, lastSurf);
-		if (firstSurf >= lastSurf) {
-			Log::Warn("No valid surfaces to process for shadow casting");
-			return;
-		}
-	}
-
-	// Quick validation
-	if (backEnd.viewParms.numDrawSurfs <= 0) {
-		Log::Warn("No draw surfaces available for shadow casting");
-		return;
-	}
-
-	Log::Debug("Processing surfaces from index %d to %d", firstSurf, lastSurf);
-
-	int surfaceCount = 0;
-	int renderedSurfaceCount = 0;
-	int skippedSurfaceCount = 0;
-
-	for (int i = firstSurf; i < lastSurf; i++) {
-		drawSurf_t *drawSurf = &backEnd.viewParms.drawSurfs[i];
-
-		// Skip invalid surfaces
-		if (drawSurf->surface == nullptr) {
-			skippedSurfaceCount++;
-			continue;
-		}
-
-		surfaceCount++;
-
-		// Log basic info for first surface only
-	if (surfaceCount == 1 && drawSurf->shader) {
-		Log::Debug("First surface: shader='%s', contentFlags=0x%x",
-		          drawSurf->shader->name, drawSurf->shader->contentFlags);
-	}
-
-		// Get surface properties
-		trRefEntity_t *entity = drawSurf->entity;
-		shader_t *shader = drawSurf->shader;
-		int lightmapNum = drawSurf->lightmapNum();
-		int fogNum = drawSurf->fog;
-
-		// Log surface info for first few surfaces
-		if (surfaceCount <= 5) {
-			Log::Debug("Processing surface %d: shader=%s, entity=%p",
-			          i, shader ? shader->name : "null", entity);
-		}
-
-		// For now, render all surfaces as potential shadow casters
-		// TODO: Add proper shadow casting flags/checks in the future
-
-		// Skip translucent surfaces (sort is a float value)
-		// Note: We check if contentFlags is non-zero first to avoid skipping surfaces
-		// that don't have any content flags set. If no flags are set, we assume the
-		// surface should be rendered for shadows.
-		if (shader && shader->contentFlags && !(shader->contentFlags & CONTENTS_SOLID)) {
-			skippedSurfaceCount++;
-			continue;
-		}
-
-
-
-		// Check if we need to switch shader/entity state
-		bool needNewBatch = (shader != oldShader || entity != oldEntity ||
-		                     lightmapNum != oldLightmapNum || fogNum != oldFogNum);
-
-		if (needNewBatch) {
-			// End current batch if any
-			if (oldShader != nullptr) {
-				// Only call Tess_End if we actually have geometry
-				if (tess.numVertexes > 0 && tess.numIndexes > 0) {
-					Tess_End();
-				}
-			}
-
-			// Start new batch with shadow depth stage iterator
-			Tess_Begin(Tess_StageIteratorShadowDepth, shader, false, lightmapNum, fogNum, drawSurf->bspSurface);
-			oldShader = shader;
-			oldLightmapNum = lightmapNum;
-			oldFogNum = fogNum;
-			renderedSurfaceCount++;
-		}
-
-		// Handle entity transformation
-		if (entity != oldEntity) {
-			depthRange = false;
-
-			if (entity != &tr.worldEntity) {
-				backEnd.currentEntity = entity;
-
-				// NOTE: We should NOT skip third-person entities from shadow casting in third-person mode
-				// Third-person entities SHOULD cast shadows since they're visible in the scene
-				// The RF_THIRD_PERSON flag just indicates it's a third-person view entity
-				if (backEnd.currentEntity->e.renderfx & RF_THIRD_PERSON) {
-					Log::Debug("Processing third-person entity %p for shadow casting (visible in scene)", entity);
-					// Continue processing this entity - DO NOT skip it
-				}
-
-				// Also check for third person flag
-				if (backEnd.currentEntity->e.renderfx & RF_THIRD_PERSON) {
-					Log::Debug("Entity %p has RF_THIRD_PERSON flag set - this might exclude it from shadows!", entity);
-				}
-
-				// Set up the transformation matrix for this entity
-				R_RotateEntityForViewParms(backEnd.currentEntity, &backEnd.viewParms, &backEnd.orientation);
-
-				if (backEnd.currentEntity->e.renderfx & RF_DEPTHHACK) {
-					depthRange = true;
-				}
-			} else {
-				backEnd.currentEntity = &tr.worldEntity;
-				backEnd.orientation = backEnd.viewParms.world;
-
-				if (surfaceCount <= 10) {
-					Log::Debug("Processing world entity");
-				}
-			}
-
-			GL_LoadModelViewMatrix(backEnd.orientation.modelViewMatrix);
-
-			// Handle depth range changes
-			if (oldDepthRange != depthRange) {
-				if (depthRange) {
-					glDepthRange(0, 0.3);
-				} else {
-					glDepthRange(0, 1);
-				}
-				oldDepthRange = depthRange;
-			}
-
-			oldEntity = entity;
-		}
-
-		// Add the surface geometry to the tessellator
-	// Track if we're actually adding geometry
-	static int geometryAddCount = 0;
-	geometryAddCount++;
-
-	if (geometryAddCount <= 10) {  // Log first 10 geometry additions
-		int vertsBefore = tess.numVertexes;
-		int indexesBefore = tess.numIndexes;
-
-		rb_surfaceTable[Util::ordinal(*drawSurf->surface)](drawSurf->surface);
-
-		int vertsAdded = tess.numVertexes - vertsBefore;
-		int indexesAdded = tess.numIndexes - indexesBefore;
-
-		if (vertsAdded > 0 || indexesAdded > 0) {
-			Log::Debug("Added geometry #%d: %d verts, %d indexes",
-			          geometryAddCount, vertsAdded, indexesAdded);
-		}
-	} else {
-		rb_surfaceTable[Util::ordinal(*drawSurf->surface)](drawSurf->surface);
-	}
-	}
-
-	// End the final batch
-	if (oldShader != nullptr) {
-		// Only call Tess_End if we actually have geometry
-		if (tess.numVertexes > 0 && tess.numIndexes > 0) {
-			static int tessEndCount = 0;
-			tessEndCount++;
-
-			if (tessEndCount <= 5) {
-				Log::Debug("Tess_End #%d: %d verts, %d indexes",
-				          tessEndCount, tess.numVertexes, tess.numIndexes);
-			}
-
-			Tess_End();
-
-			if (tessEndCount <= 5) {
-				Log::Debug("Ended final batch with shader %s", oldShader ? oldShader->name : "null");
-			}
-		}
-	}
-
-	// Restore world transformation
-	backEnd.currentEntity = &tr.worldEntity;
-	backEnd.orientation = backEnd.viewParms.world;
-	GL_LoadModelViewMatrix(backEnd.orientation.modelViewMatrix);
-
-	// Reset depth range
-	if (oldDepthRange) {
-		glDepthRange(0, 1);
-	}
-
-	// Restore face culling state
-	GL_Cull(oldCullType);
-
-	Log::Debug("Shadow caster rendering complete: processed %d surfaces, rendered %d batches, skipped %d surfaces",
-	          surfaceCount, renderedSurfaceCount, skippedSurfaceCount);
-
-	// Add a sanity check - if we processed very few surfaces, log a warning
-	if (surfaceCount < 10) {
-		Log::Warn("Very few surfaces (%d) processed for shadow casting", surfaceCount);
-	}
-
-	// Log if we rendered any batches at all
-	if (renderedSurfaceCount == 0) {
-		Log::Warn("NO batches rendered for shadow casting!");
-	} else {
-		Log::Debug("Successfully rendered shadow map with %d batches", renderedSurfaceCount);
-	}
-}
-
 void ShadowMapManager::DebugRenderShadowAtlas() {
 	shadowData_t *sd = &backEndData[backEnd.smpFrame]->shadowData;
 
@@ -1150,7 +915,7 @@ void ShadowMapManager::GetShadowLightInfo(vec4_t* lightInfo, int maxLights) cons
 		lightInfo[lightIndex][2] = static_cast<float>(lightShadow->cascades[0].atlasOffset[0]); // atlasOffset.x
 		lightInfo[lightIndex][3] = static_cast<float>(lightShadow->cascades[0].atlasOffset[1]); // atlasOffset.y
 
-		Log::Debug("Light %d info: technique=%d, cascades=%d, offset=(%d,%d)",
+		Log::Notice("Light %d info: technique=%d, cascades=%d, offset=(%d,%d)",
 		          lightIndex, static_cast<int>(lightInfo[lightIndex][0]),
 		          static_cast<int>(lightInfo[lightIndex][1]),
 		          static_cast<int>(lightInfo[lightIndex][2]),

@@ -58,20 +58,16 @@ public:
 	void UpdateShadowMaps();
 
 	// Atlas management
-	void ResizeAtlas(shadowAtlas_t* atlas, int newSize);
 	bool AllocateAtlasRegion(shadowAtlas_t* atlas, int width, int height, vec2_t offset, int lightIndex, int cascade);
-	void FreeAtlasRegion(shadowAtlas_t* atlas, const vec2_t* offset);
 
 	// Rendering
     void RenderShadowMaps();
-    void RenderShadowCasters(shadowAtlas_t* atlas, shadowMap_t* shadowMap);
-    
+
     // Debug
     void DebugRenderShadowAtlas();
 
 	// Light management
 	bool SetupLightShadows(refLight_t* light);
-	void UpdateCascadeSplits(lightShadowInfo_t* lightShadow, const viewParms_t* viewParms);
 
     // Utility
     bool IsShadowMappingEnabled() const;
@@ -79,7 +75,7 @@ public:
 
 	// Atlas access
 	image_t* GetShadowAtlas(const shadowAtlas_t* atlas) const;
-	
+
 	// Shadow data access for shader uniforms
 	void GetShadowMatrices(matrix_t* matrices, int maxMatrices) const;
 	void GetShadowLightInfo(vec4_t* lightInfo, int maxLights) const;

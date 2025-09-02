@@ -203,8 +203,9 @@ void computeDynamicLight( uint idx, vec3 P, vec3 normal, vec3 viewOrigin, vec3 v
 #else
 	float shadowFactor = 1.0;
 #endif  // defined(USE_SHADOW_MAPPING)
+	color.rgb *= shadowFactor;
 	computeDeluxeLight(
-		L, normal, viewDir, attenuation * attenuation * light.color * shadowFactor, // Apply shadow factor
+		L, normal, viewDir, attenuation * attenuation * light.color, // Apply shadow factor
 		diffuse, material, color );
 }
 

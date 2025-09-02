@@ -194,11 +194,15 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
 	}
 
 	vec4 lightInfo = u_ShadowLightInfo[lightIndex];
-	int technique = int(lightInfo.x);
+	int technique = u_ShadowTechnique;
 	int numCascades = int(lightInfo.y);
 
 	if (technique == 0 || technique == 1) { // NONE or BLOB
 		return 1.0; // No shadow mapping
+	}
+
+	if (technique == 2) {
+		return 0.0;
 	}
 
 	// Calculate view-space depth for cascade selection
@@ -224,7 +228,7 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
 	if (shadowCoord.x < 0.0 || shadowCoord.x > 1.0 ||
 	    shadowCoord.y < 0.0 || shadowCoord.y > 1.0 ||
 	    shadowCoord.z < 0.0 || shadowCoord.z > 1.0) {
-		return 1.0; // Outside shadow map, fully lit
+		return 0.0; // Outside shadow map, fully lit
 	}
 
 	// Offset into atlas based on light's atlas region
