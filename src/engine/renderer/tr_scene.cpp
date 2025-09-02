@@ -542,6 +542,32 @@ void RE_RenderScene( const refdef_t *fd )
 		}
 	}
 
+		// Inject a debug directional "sun" light if requested
+	if ( r_debugSun.Get() )
+	{
+		if ( r_numLights < MAX_REF_LIGHTS )
+		{
+			refLight_t *sun = &backEndData[ tr.smpFrame ]->lights[ r_numLights++ ];
+			sun->rlType = refLightType_t::RL_DIRECTIONAL;
+			// Compute direction from yaw/pitch cvars (in degrees)
+			float yaw = DEG2RAD( r_debugSunYaw.Get() );
+			float pitch = DEG2RAD( r_debugSunPitch.Get() );
+			// Right-handed: X forward, Y left, Z up. Direction vector components:
+			sun->projTarget[0] = cosf( pitch ) * cosf( yaw );
+			sun->projTarget[1] = cosf( pitch ) * sinf( yaw );
+			sun->projTarget[2] = sinf( pitch );
+			VectorNormalize( sun->projTarget );
+			// Color and intensity
+			sun->color[0] = r_debugSunR.Get();
+			sun->color[1] = r_debugSunG.Get();
+			sun->color[2] = r_debugSunB.Get();
+			sun->scale = r_debugSunIntensity.Get();
+			// Radius not used for directional
+			sun->radius = 0.0f;
+			VectorClear( sun->origin );
+		}
+	}
+
 	// derived info
 	if ( r_forceRendererTime.Get() >= 0 ) {
 		tr.refdef.floatTime = float( double( r_forceRendererTime.Get() ) * 0.001 );

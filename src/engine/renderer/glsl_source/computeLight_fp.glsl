@@ -192,21 +192,24 @@ void computeDynamicLight( uint idx, vec3 P, vec3 normal, vec3 viewOrigin, vec3 v
 		if( dot( L, light.direction ) <= light.angle ) {
 			attenuation = 0.0;
 		}
-	} else if( light.type == 2.0 ) {
-		// sun (directional) light
-		L = light.direction;
-		attenuation = 1.0;
-	}
+    } else if( light.type == 2.0 ) {
+        // sun (directional) light
+        L = normalize( light.direction );
+        attenuation = 1.0;
+    }
 
 #if defined(USE_SHADOW_MAPPING)
 	float shadowFactor = CalculateShadowFactor(P, viewOrigin, normal, int(idx)); // P and normal are worldPos and normal, idx is lightIndex
+	// Subtractive overlay: darken precomputed lighting too (prototype)
+	color.rgb = vec3(shadowFactor);
 #else
 	float shadowFactor = 1.0;
 #endif  // defined(USE_SHADOW_MAPPING)
-	color.rgb *= shadowFactor;
-	computeDeluxeLight(
-		L, normal, viewDir, attenuation * attenuation * light.color, // Apply shadow factor
-		diffuse, material, color );
+	// Apply shadow to this light's contribution, not the accumulated color
+	vec3 lightRGB = attenuation * attenuation * shadowFactor * light.color;
+    computeDeluxeLight(
+        L, normal, viewDir, lightRGB,
+        diffuse, material, color );
 }
 
 const uint lightsPerLayer = 16u;

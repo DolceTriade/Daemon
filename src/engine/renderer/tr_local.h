@@ -2866,6 +2866,14 @@ struct shadowData_t {
 
 	extern cvar_t *r_evsmPostProcess;
 
+	extern Cvar::Cvar<bool> r_debugSun;
+	extern Cvar::Range<Cvar::Cvar<float>> r_debugSunYaw;
+	extern Cvar::Range<Cvar::Cvar<float>> r_debugSunPitch;
+	extern Cvar::Range<Cvar::Cvar<float>> r_debugSunIntensity;
+	extern Cvar::Range<Cvar::Cvar<float>> r_debugSunR;
+	extern Cvar::Range<Cvar::Cvar<float>> r_debugSunG;
+	extern Cvar::Range<Cvar::Cvar<float>> r_debugSunB;
+
 //====================================================================
 
 /* r_checkGLErrors values:

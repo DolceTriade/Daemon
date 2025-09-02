@@ -3361,32 +3361,51 @@ const RenderCommand *SetupLightsCommand::ExecuteSelf( ) const
 							    0, numLights * sizeof( shaderLight_t ),
 							    GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT );
 
-		for( int i = 0, j = 0; i < numLights; i++, j++ ) {
-			refLight_t *light = &refdef.lights[j];
+    for( int i = 0, j = 0; i < numLights; i++, j++ ) {
+        refLight_t *light = &refdef.lights[j];
 
-			VectorCopy( light->origin, buffer[i].center );
-			buffer[i].radius = light->radius;
-			VectorScale( light->color, 4.0f * light->scale, buffer[i].color );
-			buffer[i].type = Util::ordinal( light->rlType );
-			switch( light->rlType ) {
-			case refLightType_t::RL_PROJ:
-				VectorCopy( light->projTarget,
-					    buffer[i].direction );
-				buffer[i].angle = cosf( atan2f( VectorLength( light->projUp), VectorLength( light->projTarget ) ) );
-				break;
-			case refLightType_t::RL_DIRECTIONAL:
-				VectorCopy( light->projTarget,
-					    buffer[i].direction );
-				break;
-			default:
-				break;
-			}
+        VectorCopy( light->origin, buffer[i].center );
+        buffer[i].radius = light->radius;
+        VectorScale( light->color, 4.0f * light->scale, buffer[i].color );
+        buffer[i].type = Util::ordinal( light->rlType );
+        switch( light->rlType ) {
+        case refLightType_t::RL_PROJ: {
+            // Spot light: direction from projTarget, angle from projUp/projTarget lengths
+            vec3_t dir;
+            VectorCopy( light->projTarget, dir );
+            if ( VectorNormalize( dir ) == 0.0f ) {
+                // Fallback direction if invalid
+                VectorSet( dir, 0.0f, 0.0f, -1.0f );
+            }
+            VectorCopy( dir, buffer[i].direction );
 
-			// Set up shadow mapping for this light if enabled
-			if ( R_ShadowMappingEnabled() && i < r_shadowLights.Get() ) {
-				shadowMapManager.SetupLightShadows( light );
-			}
-		}
+            float upLen = VectorLength( light->projUp );
+            float tgtLen = VectorLength( light->projTarget );
+            if ( upLen > 0.0f && tgtLen > 0.0f ) {
+                float halfAngle = atan2f( upLen, tgtLen );
+                buffer[i].angle = cosf( halfAngle );
+            } else {
+                // No cone information: treat as very wide cone
+                buffer[i].angle = -1.0f;
+            }
+            break; }
+        case refLightType_t::RL_DIRECTIONAL: {
+            // Directional: direction from projTarget, normalized
+            vec3_t dir;
+            VectorCopy( light->projTarget, dir );
+            if ( VectorNormalize( dir ) == 0.0f ) {
+                VectorSet( dir, 0.0f, 0.0f, -1.0f );
+            }
+            VectorCopy( dir, buffer[i].direction );
+            buffer[i].angle = 1.0f; // unused
+            break; }
+        default:
+            // Omni: direction/angle unused
+            VectorClear( buffer[i].direction );
+            buffer[i].angle = 1.0f;
+            break;
+        }
+    }
 
 		glUnmapBuffer( bufferTarget );
 		glBindBuffer( bufferTarget, 0 );

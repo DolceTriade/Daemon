@@ -3251,9 +3251,9 @@ public:
 	{
 	}
 
-	void SetUniform_ShadowAtlas( GLuint64 value )
+	void SetUniform_ShadowAtlasBindless( GLuint64 value )
 	{
-		this->SetValue( value );
+		this->SetValueBindless( value );
 	}
 };
 
@@ -3491,7 +3491,6 @@ class GLShader_lightMappingMaterial :
 	public GLCompileMacro_USE_SHADOW_MAPPING {
 	public:
 	GLShader_lightMappingMaterial();
-	void SetShaderProgramUniforms( ShaderProgramDescriptor *shaderProgram ) override;
 };
 
 class GLShader_reflection :

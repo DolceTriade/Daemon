@@ -40,11 +40,14 @@ uniform int u_ShadowTechnique;
 
 // ESM16 shadow sampling
 float SampleShadowESM16(sampler2D shadowMap, vec3 shadowCoord, float exponent) {
-	float shadowDepth = texture(shadowMap, shadowCoord.xy).r;
-	float occluderDepth = shadowCoord.z;
-
-	// ESM formula: exp(exponent * (shadowDepth - occluderDepth))
-	return clamp(exp(exponent * (shadowDepth - occluderDepth)), 0.0, 1.0);
+	// Atlas stores exp(k * z_occluder). Receiver term is exp(k * z_receiver).
+	// Lit when z_receiver <= z_occluder ⇒ exp(k*z_rcv) <= exp(k*z_occ).
+	// A soft test is stored / receiverExp, clamped to [0,1].
+	float stored = texture(shadowMap, shadowCoord.xy).r; // exp(k*z_occ)
+	float receiverExp = exp(exponent * shadowCoord.z);
+	receiverExp = max(receiverExp, 1e-6);
+	float esm = stored / receiverExp;
+	return clamp(esm, 0.0, 1.0);
 }
 
 // ESM32 shadow sampling (same as ESM16 but with higher precision)
@@ -73,19 +76,13 @@ float SampleShadowVSM(sampler2D shadowMap, vec3 shadowCoord) {
 
 // EVSM32 shadow sampling
 float SampleShadowEVSM32(sampler2D shadowMap, vec3 shadowCoord, float exponent) {
-	vec2 exponents = texture(shadowMap, shadowCoord.xy).rg;
-	float depth = shadowCoord.z;
-
-	// EVSM uses exponential moments
-	float expDepth = exp(exponent * depth);
-	float negExpDepth = exp(-exponent * depth);
-
-	// Positive exponential
-	float posShadow = (expDepth <= exponents.x) ? 1.0 :
-		(exponents.y - exponents.x * exponents.x) /
-		(exponents.y - exponents.x * exponents.x + (expDepth - exponents.x) * (expDepth - exponents.x));
-
-	return clamp(posShadow, 0.0, 1.0);
+	vec2 texExp = texture(shadowMap, shadowCoord.xy).rg; // [exp(+k*z_occ), exp(-k*z_occ)]
+	float z = shadowCoord.z;
+	float posR = exp(exponent * z);
+	float negR = exp(-exponent * z);
+	float litPos = posR <= texExp.x ? 1.0 : 0.0;
+	float litNeg = negR <= texExp.y ? 1.0 : 0.0;
+	return min(litPos, litNeg);
 }
 
 // PCF filtering for shadow maps
@@ -201,10 +198,6 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
 		return 1.0; // No shadow mapping
 	}
 
-	if (technique == 2) {
-		return 0.0;
-	}
-
 	// Calculate view-space depth for cascade selection
 	float viewDepth = length(worldPos - viewOrigin);
 	int cascadeIndex = (numCascades > 1) ? SelectShadowCascade(viewDepth, lightIndex) : 0;
@@ -228,7 +221,7 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
 	if (shadowCoord.x < 0.0 || shadowCoord.x > 1.0 ||
 	    shadowCoord.y < 0.0 || shadowCoord.y > 1.0 ||
 	    shadowCoord.z < 0.0 || shadowCoord.z > 1.0) {
-		return 0.0; // Outside shadow map, fully lit
+		return 1.0; // Outside shadow map, fully lit
 	}
 
 	// Offset into atlas based on light's atlas region

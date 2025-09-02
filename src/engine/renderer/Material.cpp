@@ -164,9 +164,9 @@ void UpdateSurfaceDataGeneric3D( uint32_t* materials, shaderStage_t* pStage, boo
 }
 
 void UpdateSurfaceDataLightMapping( uint32_t* materials, shaderStage_t* pStage, bool, bool vertexLit, bool fullbright ) {
-	shader_t* shader = pStage->shader;
+    shader_t* shader = pStage->shader;
 
-	materials += pStage->bufferOffset;
+    materials += pStage->bufferOffset;
 
 	// u_ColorModulate
 	colorGen_t rgbGen = SetRgbGen( pStage );
@@ -212,7 +212,36 @@ void UpdateSurfaceDataLightMapping( uint32_t* materials, shaderStage_t* pStage, 
 		gl_lightMappingShaderMaterial->SetUniform_SpecularExponent( specExpMin, specExpMax );
 	}
 
-	gl_lightMappingShaderMaterial->WriteUniformsToBuffer( materials );
+    // Shadow mapping uniforms (material system path)
+    if ( glConfig.usingMaterialSystem && R_ShadowMappingEnabled() ) {
+        // Params
+        vec4_t shadowParams;
+        shadowParams[0] = r_shadowBias.Get();           // bias
+        shadowParams[1] = r_shadowESMExponent.Get();    // ESM exponent
+        shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
+        shadowParams[3] = 0.0f;
+        gl_lightMappingShaderMaterial->SetUniform_ShadowParams( shadowParams );
+
+        // Matrices
+        matrix_t shadowMatrices[16];
+        shadowMapManager.GetShadowMatrices( shadowMatrices, 16 );
+        gl_lightMappingShaderMaterial->SetUniform_ShadowMatrices( shadowMatrices, 16 );
+
+        // Light info
+        vec4_t shadowLightInfo[4];
+        shadowMapManager.GetShadowLightInfo( shadowLightInfo, 4 );
+        gl_lightMappingShaderMaterial->SetUniform_ShadowLightInfo( shadowLightInfo, 4 );
+
+        // Cascade splits
+        vec4_t cascadeSplits[4];
+        shadowMapManager.GetCascadeSplits( cascadeSplits, 4 );
+        gl_lightMappingShaderMaterial->SetUniform_CascadeSplits( cascadeSplits, 4 );
+
+        // Technique
+        gl_lightMappingShaderMaterial->SetUniform_ShadowTechnique( r_shadows.Get() );
+    }
+
+    gl_lightMappingShaderMaterial->WriteUniformsToBuffer( materials );
 }
 
 void UpdateSurfaceDataReflection( uint32_t* materials, shaderStage_t* pStage, bool, bool, bool ) {
@@ -532,7 +561,7 @@ void MaterialSystem::GenerateWorldCommandBuffer( std::vector<MaterialSurface>& s
 
 	uint64_t* lightMapData = ( uint64_t* ) stagingBuffer.MapBuffer( MAX_LIGHTMAPS * LIGHTMAP_SIZE );
 	memset( lightMapData, 0, MAX_LIGHTMAPS * LIGHTMAP_SIZE * sizeof( uint32_t ) );
-	
+
 	for ( uint32_t i = 0; i < tr.lightmaps.size(); i++ ) {
 		if ( !tr.lightmaps[i]->texture->hasBindlessHandle ) {
 			tr.lightmaps[i]->texture->GenBindlessHandle();
@@ -712,7 +741,7 @@ void MaterialSystem::GenerateWorldCommandBuffer( std::vector<MaterialSurface>& s
 	}
 
 	stagingBuffer.FlushAll();
-	
+
 	uint32_t totalCount = 0;
 	for ( MaterialPack& pack : materialPacks ) {
 		totalCount += pack.materials.size();
@@ -1093,6 +1122,12 @@ void ProcessMaterialLightMapping( Material* material, shaderStage_t* pStage, Mat
 
 	gl_lightMappingShaderMaterial->SetPhysicalShading( pStage->enablePhysicalMapping );
 
+	// Enable shadow mapping if using material system and shadow mapping is enabled
+	if ( R_ShadowMappingEnabled() )
+	{
+		gl_lightMappingShaderMaterial->SetShadowMapping( true );
+	}
+
 	material->program = gl_lightMappingShaderMaterial->GetProgram( pStage->deformIndex, materialSystem.buildOneShader );
 }
 
@@ -1377,7 +1412,7 @@ void MaterialSystem::GenerateMaterial( MaterialSurface* surface ) {
 	if ( surface->skyBrush ) {
 		return;
 	}
-	
+
 	if ( surface->shader->depthShader ) {
 		uint32_t unused;
 		ProcessStage( surface, surface->shader->depthShader->stages, surface->shader->depthShader, packIDs, stage, unused, true );
@@ -1775,7 +1810,7 @@ bool MaterialSystem::AddPortalSurface( uint32_t viewID, PortalSurface* portalSur
 		if ( portalSurface->distance == -1 ) { // -1 is set if the surface is culled
 			continue;
 		}
-		
+
 		uint32_t portalViewID = viewCount + 1;
 		// This check has to be done first so we can correctly determine when we get to MAX_VIEWS - 1 amount of views
 		screenRect_t surfRect;

@@ -830,12 +830,6 @@ void ProcessShaderLightMapping( const shaderStage_t* pStage ) {
 	gl_lightMappingShader->SetReflectiveSpecular( enableReflectiveSpecular );
 
 	gl_lightMappingShader->SetPhysicalShading( pStage->enablePhysicalMapping );
-
-	// Enable shadow mapping if using material system and shadow mapping is enabled
-	if ( glConfig.usingMaterialSystem && R_ShadowMappingEnabled() )
-	{
-		gl_lightMappingShaderMaterial->SetShadowMapping( true );
-	}
 }
 
 void ProcessShaderReflection( const shaderStage_t* pStage ) {
@@ -1245,17 +1239,6 @@ void Render_lightMapping( shaderStage_t *pStage )
 	// bind shadow mapping uniforms
 	if ( glConfig.usingMaterialSystem && R_ShadowMappingEnabled() )
 	{
-
-		// bind u_ShadowAtlas
-		image_t* shadowAtlas = shadowMapManager.GetShadowAtlas( &backEndData[backEnd.smpFrame]->shadowData.shadowAtlas );
-		if ( shadowAtlas )
-		{
-			gl_lightMappingShaderMaterial->SetUniform_ShadowAtlas( GL_BindToTMU( BIND_SHADOWATLAS, shadowAtlas ) );
-
-			// Debug logging
-			Log::Debug("Bound shadow atlas texture: %d", shadowAtlas->texnum);
-		}
-
 		// bind u_ShadowParams
 		vec4_t shadowParams;
 		shadowParams[0] = r_shadowBias.Get();           // bias

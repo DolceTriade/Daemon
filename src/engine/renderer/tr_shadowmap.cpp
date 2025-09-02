@@ -530,12 +530,7 @@ void ShadowMapManager::RenderShadowMaps() {
 	}
 
 	renderCallCount++;
-	Log::Debug("RenderShadowMaps #%d called with %d shadow lights", renderCallCount, sd->numShadowLights);
-
-	if (sd->numShadowLights == 0) {
-		Log::Debug("No shadow lights to render, returning early");
-		return;
-	}
+    Log::Debug("RenderShadowMaps #%d called with %d shadow lights", renderCallCount, sd->numShadowLights);
 
 	if (!sd->shadowAtlas.fbo) {
 		Log::Warn("Shadow atlas FBO not initialized");
@@ -599,7 +594,19 @@ void ShadowMapManager::RenderShadowMaps() {
 		R_BindFBO(oldFBO);
 		return;
 	}
-	Log::Debug("Shadow atlas FBO is complete");
+    Log::Debug("Shadow atlas FBO is complete");
+
+    // Always clear the atlas each frame so sampling never uses stale data
+    GL_Scissor( 0, 0, sd->shadowAtlas.size, sd->shadowAtlas.size );
+    GL_ClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+    GL_ClearDepth(1.0);
+    glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+
+    if (sd->numShadowLights == 0) {
+        Log::Debug("No shadow lights to render after clearing atlas");
+        R_BindFBO(oldFBO);
+        return;
+    }
 
 	// One-time setup since we only support one technique at a time
 	shadowingMode_t technique = sd->lightShadows[0].cascades[0].technique;
@@ -698,7 +705,8 @@ void ShadowMapManager::RenderShadowMaps() {
                 bool depthRange = false, oldDepthRange = false;
                 int i;
                 drawSurf_t *drawSurf;
-                int first = backEnd.viewParms.firstDrawSurf[ Util::ordinal(shaderSort_t::SS_DEPTH) ];
+                // Render a broad range of geometry sorts to ensure dynamic entities are included
+                int first = backEnd.viewParms.firstDrawSurf[ Util::ordinal(shaderSort_t::SS_ENVIRONMENT_FOG) ];
                 int last  = backEnd.viewParms.firstDrawSurf[ Util::ordinal(shaderSort_t::SS_OPAQUE) + 1 ];
 
                 for ( i = first; i < last; i++ ) {
@@ -915,7 +923,7 @@ void ShadowMapManager::GetShadowLightInfo(vec4_t* lightInfo, int maxLights) cons
 		lightInfo[lightIndex][2] = static_cast<float>(lightShadow->cascades[0].atlasOffset[0]); // atlasOffset.x
 		lightInfo[lightIndex][3] = static_cast<float>(lightShadow->cascades[0].atlasOffset[1]); // atlasOffset.y
 
-		Log::Notice("Light %d info: technique=%d, cascades=%d, offset=(%d,%d)",
+		Log::Debug("Light %d info: technique=%d, cascades=%d, offset=(%d,%d)",
 		          lightIndex, static_cast<int>(lightInfo[lightIndex][0]),
 		          static_cast<int>(lightInfo[lightIndex][1]),
 		          static_cast<int>(lightInfo[lightIndex][2]),

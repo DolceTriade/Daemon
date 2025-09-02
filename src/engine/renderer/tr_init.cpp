@@ -148,6 +148,15 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 		4096, 2048, 8192 );
 	Cvar::Cvar<bool> r_shadowDebug( "r_shadowDebug", "show shadow map debug visualization", Cvar::NONE, false );
 
+	// Debug sun light (directional) injection
+	Cvar::Cvar<bool> r_debugSun( "r_debugSun", "inject a directional sun light each frame", Cvar::NONE, false );
+	Cvar::Range<Cvar::Cvar<float>> r_debugSunYaw( "r_debugSunYaw", "debug sun yaw in degrees", Cvar::NONE, 45.0f, -360.0f, 360.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_debugSunPitch( "r_debugSunPitch", "debug sun pitch in degrees", Cvar::NONE, -60.0f, -89.0f, 89.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_debugSunIntensity( "r_debugSunIntensity", "debug sun intensity (scale)", Cvar::NONE, 1.0f, 0.0f, 100.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_debugSunR( "r_debugSunR", "debug sun color R", Cvar::NONE, 1.0f, 0.0f, 10.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_debugSunG( "r_debugSunG", "debug sun color G", Cvar::NONE, 1.0f, 0.0f, 10.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_debugSunB( "r_debugSunB", "debug sun color B", Cvar::NONE, 1.0f, 0.0f, 10.0f );
+
 	cvar_t      *r_mode;
 	cvar_t      *r_nobind;
 	cvar_t      *r_singleShader;

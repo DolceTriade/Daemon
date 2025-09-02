@@ -113,6 +113,13 @@ void main() {
 	vec4 plane3 = vec4( normalize( cross( topright, topleft ) ), 0 );
 	vec4 plane4 = vec4( normalize( cross( topleft, bottomleft ) ), 0 );
 
+	// Expand tile frustum by pushing side planes inward
+	float margin = 16.0; // units in view space
+	plane1.w -= margin;
+	plane2.w -= margin;
+	plane3.w -= margin;
+	plane4.w -= margin;
+
 	vec4 plane5 = vec4( 0.0, 0.0,  1.0,  minmax.y );
 	vec4 plane6 = vec4( 0.0, 0.0, -1.0, -minmax.x );
 
@@ -126,6 +133,16 @@ void main() {
 	or use compute shaders with atomics so we can have a variable amount of lights for each tile. */
 	for( uint i = uint( u_lightLayer ); i < uint( u_numLights ); i += uint( NUM_LIGHT_LAYERS ) ) {
 		Light l = GetLight( i );
+		// Directional lights (sun) have infinite extent: always include them in tiles
+		if ( l.type == 2.0 ) {
+			pushIdxs( ( i / uint( NUM_LIGHT_LAYERS ) ) + 1u, lightCount, idxs );
+			lightCount++;
+			if( lightCount == lightsPerLayer ) {
+				break;
+			}
+			continue;
+		}
+
 		vec3 center = ( u_ModelMatrix * vec4( l.center, 1.0 ) ).xyz;
 		float radius = max( 2.0 * l.radius, 2.0 * 32.0 ); // Avoid artifacts with weak light sources
 

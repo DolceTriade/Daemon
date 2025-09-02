@@ -2527,10 +2527,6 @@ GLShader_lightMappingMaterial::GLShader_lightMappingMaterial() :
 	GLCompileMacro_USE_SHADOW_MAPPING( this ) {
 }
 
-void GLShader_lightMappingMaterial::SetShaderProgramUniforms( ShaderProgramDescriptor *shaderProgram )
-{
-	glUniform1i( glGetUniformLocation( shaderProgram->id, "u_ShadowAtlas" ), BIND_SHADOWATLAS );
-}
 
 GLShader_reflection::GLShader_reflection():
 	GLShader( "reflection", ATTR_POSITION | ATTR_TEXCOORD | ATTR_QTANGENT,
