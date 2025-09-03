@@ -27,11 +27,12 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "BufferBind.h"
 #include "GLUtils.h"
 #include <stdexcept>
+#include <algorithm>
 
 #define USE_UNIFORM_FIREWALL 1
 
 // *INDENT-OFF*
-static const unsigned int MAX_SHADER_MACROS = 10;
+static const unsigned int MAX_SHADER_MACROS = 12;
 static const unsigned int GL_SHADER_VERSION = 6;
 
 class ShaderException : public std::runtime_error
@@ -749,7 +750,7 @@ protected:
 	GLUniform1fv( GLShader *shader, const char *name, const int size ) :
 	GLUniform( shader, name, "float", 1, 1, false, size )
 	{
-		currentValue.reserve( size );
+		currentValue.resize( size * 4, 0.0f );
 	}
 
 	inline void SetValue( int numFloats, float *f )
@@ -932,7 +933,7 @@ protected:
 	GLUniform4fv( GLShader *shader, const char *name, const int size ) :
 	GLUniform( shader, name, "vec4", 4, 4, false, size )
 	{
-		currentValue.reserve( size );
+		currentValue.resize( size * 4, 0.0f );
 	}
 
 	inline void SetValue( int numV, vec4_t *v )
@@ -944,7 +945,9 @@ protected:
 		}
 
 		if ( _shader->UseMaterialSystem() && !_global ) {
-			memcpy( currentValue.data(), v, numV * sizeof( vec4_t ) );
+			int maxV = (int)( currentValue.size() / 4 );
+			int copyV = std::min( numV, maxV );
+			memcpy( currentValue.data(), v, copyV * sizeof( vec4_t ) );
 			return;
 		}
 
@@ -1045,7 +1048,7 @@ protected:
 	GLUniformMatrix4fv( GLShader *shader, const char *name, const int size ) :
 	GLUniform( shader, name, "mat4", 16, 4, false, size )
 	{
-		currentValue.reserve( size * 16 );
+		currentValue.resize( size * 16, 0.0f );
 	}
 
 	inline void SetValue( int numMatrices, GLboolean transpose, const matrix_t *m )
@@ -1057,7 +1060,9 @@ protected:
 		}
 
 		if ( _shader->UseMaterialSystem() && !_global ) {
-			memcpy( currentValue.data(), m, numMatrices * sizeof( matrix_t ) );
+			int maxM = (int)( currentValue.size() / 16 );
+			int copyM = std::min( numMatrices, maxM );
+			memcpy( currentValue.data(), m, copyM * sizeof( matrix_t ) );
 			return;
 		}
 
@@ -1080,6 +1085,7 @@ protected:
 	GLUniformMatrix34fv( GLShader *shader, const char *name, const int size ) :
 	GLUniform( shader, name, "mat3x4", 12, 4, false, size )
 	{
+		currentValue.resize( size * 12, 0.0f );
 	}
 
 	inline void SetValue( int numMatrices, GLboolean transpose, const float *m )
@@ -1091,7 +1097,9 @@ protected:
 		}
 
 		if ( _shader->UseMaterialSystem() && !_global ) {
-			memcpy( currentValue.data(), m, numMatrices * sizeof( matrix_t ) );
+			int maxM = (int)( currentValue.size() / 12 );
+			int copyM = std::min( numMatrices, maxM );
+			memcpy( currentValue.data(), m, copyM * 12 * sizeof( float ) );
 			return;
 		}
 
@@ -3243,11 +3251,11 @@ class u_Lights :
 
 // Shadow mapping uniforms
 class u_ShadowAtlas :
-	GLUniformSampler
+	GLUniformSampler2D
 {
 public:
 	u_ShadowAtlas( GLShader *shader ) :
-		GLUniformSampler( shader, "u_ShadowAtlas", "sampler2D" )
+		GLUniformSampler2D( shader, "u_ShadowAtlas" )
 	{
 	}
 
@@ -3288,13 +3296,13 @@ public:
 };
 
 class u_ShadowLightInfo :
-	GLUniform4fv
+    GLUniform4fv
 {
 public:
-	u_ShadowLightInfo( GLShader *shader ) :
-		GLUniform4fv( shader, "u_ShadowLightInfo", 16 )
-	{
-	}
+    u_ShadowLightInfo( GLShader *shader ) :
+        GLUniform4fv( shader, "u_ShadowLightInfo", 4 )
+    {
+    }
 
 	void SetUniform_ShadowLightInfo( vec4_t *data, int count )
 	{
@@ -3303,13 +3311,13 @@ public:
 };
 
 class u_CascadeSplits :
-	GLUniform4fv
+    GLUniform4fv
 {
 public:
-	u_CascadeSplits( GLShader *shader ) :
-		GLUniform4fv( shader, "u_CascadeSplits", 16 )
-	{
-	}
+    u_CascadeSplits( GLShader *shader ) :
+        GLUniform4fv( shader, "u_CascadeSplits", 4 )
+    {
+    }
 
 	void SetUniform_CascadeSplits( vec4_t *splits, int count )
 	{
@@ -3387,24 +3395,30 @@ class GLShader_genericMaterial :
 };
 
 class GLShader_lightMapping :
-	public GLShader,
-	public u_DiffuseMap,
-	public u_NormalMap,
-	public u_HeightMap,
-	public u_MaterialMap,
-	public u_LightMap,
-	public u_DeluxeMap,
-	public u_GlowMap,
-	public u_EnvironmentMap0,
-	public u_EnvironmentMap1,
-	public u_LightGrid1,
-	public u_LightGrid2,
-	public u_LightTiles,
-	public u_TextureMatrix,
-	public u_SpecularExponent,
-	public u_ColorModulateColorGen_Float,
-	public u_ColorModulateColorGen_Uint,
-	public u_Color_Float,
+    public GLShader,
+    public u_DiffuseMap,
+    public u_NormalMap,
+    public u_HeightMap,
+    public u_MaterialMap,
+    public u_LightMap,
+    public u_DeluxeMap,
+    public u_GlowMap,
+    public u_EnvironmentMap0,
+    public u_EnvironmentMap1,
+    public u_LightGrid1,
+    public u_LightGrid2,
+    public u_LightTiles,
+    public u_ShadowAtlas,
+    public u_ShadowParams,
+    public u_ShadowMatrices,
+    public u_ShadowLightInfo,
+    public u_CascadeSplits,
+    public u_ShadowTechnique,
+    public u_TextureMatrix,
+    public u_SpecularExponent,
+    public u_ColorModulateColorGen_Float,
+    public u_ColorModulateColorGen_Uint,
+    public u_Color_Float,
 	public u_Color_Uint,
 	public u_AlphaThreshold,
 	public u_ViewOrigin,
@@ -3430,13 +3444,14 @@ class GLShader_lightMapping :
 	public GLCompileMacro_USE_GRID_LIGHTING,
 	public GLCompileMacro_USE_GRID_DELUXE_MAPPING,
 	public GLCompileMacro_USE_HEIGHTMAP_IN_NORMALMAP,
-	public GLCompileMacro_USE_RELIEF_MAPPING,
-	public GLCompileMacro_USE_REFLECTIVE_SPECULAR,
-	public GLCompileMacro_USE_PHYSICAL_MAPPING
+    public GLCompileMacro_USE_RELIEF_MAPPING,
+    public GLCompileMacro_USE_REFLECTIVE_SPECULAR,
+    public GLCompileMacro_USE_PHYSICAL_MAPPING,
+    public GLCompileMacro_USE_SHADOW_MAPPING
 {
 public:
-	GLShader_lightMapping();
-	void SetShaderProgramUniforms( ShaderProgramDescriptor *shaderProgram ) override;
+    GLShader_lightMapping();
+    void SetShaderProgramUniforms( ShaderProgramDescriptor *shaderProgram ) override;
 };
 
 class GLShader_lightMappingMaterial :
@@ -3491,6 +3506,9 @@ class GLShader_lightMappingMaterial :
 	public GLCompileMacro_USE_SHADOW_MAPPING {
 	public:
 	GLShader_lightMappingMaterial();
+	void SetShaderProgramUniforms( ShaderProgramDescriptor *shaderProgram ) override {
+		glUniform1i( glGetUniformLocation( shaderProgram->id, "u_ShadowAtlas" ), BIND_SHADOWATLAS );
+	}
 };
 
 class GLShader_reflection :

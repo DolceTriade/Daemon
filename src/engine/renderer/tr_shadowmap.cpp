@@ -496,9 +496,12 @@ void ShadowMapManager::UpdateShadowMaps() {
         // Tiles required for this light
         int requiredTiles = (light->rlType == refLightType_t::RL_DIRECTIONAL) ? r_shadowCascades.Get() : 1;
         if (usedTiles + requiredTiles > atlasCapacity) {
-            Log::Warn("Skipping light %d: not enough atlas space (need %d tiles, have %d/%d)",
+            // Maintain 1:1 index alignment with tiled/UBO light indices: only shadow
+            // the first contiguous block of scene lights. If we can't fit this one,
+            // stop here so shadow light indices remain a prefix [0..K) of scene lights.
+            Log::Warn("Stopping shadow selection at light %d: not enough atlas space (need %d tiles, have %d/%d)",
                       i, requiredTiles, atlasCapacity - usedTiles, atlasCapacity);
-            continue;
+            break;
         }
 
         if (SetupLightShadows(light)) {
@@ -506,7 +509,10 @@ void ShadowMapManager::UpdateShadowMaps() {
             lightsProcessed++;
             usedTiles += requiredTiles;
         } else {
-            Log::Debug("Failed to set up shadow for scene light %d", i);
+            // Same rationale as above: keep indices aligned by only shadowing a contiguous
+            // prefix of scene lights. If this light fails to set up, stop adding more.
+            Log::Debug("Failed to set up shadow for scene light %d; stopping to preserve index alignment", i);
+            break;
         }
     }
 

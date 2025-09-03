@@ -193,15 +193,14 @@ void computeDynamicLight( uint idx, vec3 P, vec3 normal, vec3 viewOrigin, vec3 v
 			attenuation = 0.0;
 		}
     } else if( light.type == 2.0 ) {
-        // sun (directional) light
-        L = normalize( light.direction );
+        // sun (directional) light: use vector from surface towards light
+        L = normalize( -light.direction );
         attenuation = 1.0;
     }
 
 #if defined(USE_SHADOW_MAPPING)
 	float shadowFactor = CalculateShadowFactor(P, viewOrigin, normal, int(idx)); // P and normal are worldPos and normal, idx is lightIndex
 	// Subtractive overlay: darken precomputed lighting too (prototype)
-	color.rgb = vec3(shadowFactor);
 #else
 	float shadowFactor = 1.0;
 #endif  // defined(USE_SHADOW_MAPPING)

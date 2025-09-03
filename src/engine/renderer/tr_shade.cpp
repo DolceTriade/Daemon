@@ -1236,48 +1236,6 @@ void Render_lightMapping( shaderStage_t *pStage )
 		);
 	}
 
-	// bind shadow mapping uniforms
-	if ( glConfig.usingMaterialSystem && R_ShadowMappingEnabled() )
-	{
-		// bind u_ShadowParams
-		vec4_t shadowParams;
-		shadowParams[0] = r_shadowBias.Get();           // bias
-		shadowParams[1] = r_shadowESMExponent.Get();    // ESM exponent
-		shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
-		shadowParams[3] = 0.0f;                         // unused
-		gl_lightMappingShaderMaterial->SetUniform_ShadowParams( shadowParams );
-
-		Log::Debug("Set shadow params: bias=%.3f, exponent=%.1f, pcf=%.1f",
-		          shadowParams[0], shadowParams[1], shadowParams[2]);
-
-		// bind u_ShadowMatrices
-		matrix_t shadowMatrices[16];
-		shadowMapManager.GetShadowMatrices(shadowMatrices, 16);
-		gl_lightMappingShaderMaterial->SetUniform_ShadowMatrices( shadowMatrices, 16 );
-
-		// bind u_ShadowLightInfo
-		vec4_t shadowLightInfo[4];
-		shadowMapManager.GetShadowLightInfo(shadowLightInfo, 4);
-		gl_lightMappingShaderMaterial->SetUniform_ShadowLightInfo( shadowLightInfo, 4 );
-
-		Log::Debug("Set shadow light info:");
-		for (int i = 0; i < 4; i++) {
-			Log::Debug("  [%d]: (%.1f, %.1f, %.1f, %.1f)", i,
-			          shadowLightInfo[i][0], shadowLightInfo[i][1],
-			          shadowLightInfo[i][2], shadowLightInfo[i][3]);
-		}
-
-		// bind u_CascadeSplits
-		vec4_t cascadeSplits[4];
-		shadowMapManager.GetCascadeSplits(cascadeSplits, 4);
-		gl_lightMappingShaderMaterial->SetUniform_CascadeSplits( cascadeSplits, 4 );
-
-		// bind u_ShadowTechnique
-		gl_lightMappingShaderMaterial->SetUniform_ShadowTechnique( r_shadows.Get() );
-
-		Log::Debug("Set shadow technique: %d", r_shadows.Get());
-	}
-
 	if ( r_profilerRenderSubGroups.Get() && !( pStage->stateBits & GLS_DEPTHMASK_TRUE ) ) {
 		const uint mode = GetShaderProfilerRenderSubGroupsMode( stateBits );
 		gl_lightMappingShader->SetUniform_ProfilerRenderSubGroups( mode );

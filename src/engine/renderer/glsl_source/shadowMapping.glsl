@@ -191,7 +191,7 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
 	}
 
 	vec4 lightInfo = u_ShadowLightInfo[lightIndex];
-	int technique = u_ShadowTechnique;
+	int technique = int(lightInfo.x);
 	int numCascades = int(lightInfo.y);
 
 	if (technique == 0 || technique == 1) { // NONE or BLOB

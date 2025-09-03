@@ -125,6 +125,15 @@ static void ComputeDynamics( shaderStage_t* pStage ) {
 	                                  || pStage->fresnelScaleExp.numOps || pStage->normalIntensityExp.numOps || pStage->refractionIndexExp.numOps;
 
 	pStage->dynamic = pStage->dynamic || pStage->colorDynamic;
+
+	// Ensure per-frame updates for stages that depend on dynamic lighting/shadows.
+	// LightMapping stages pack shadow uniforms (technique, splits, matrices, atlas offsets)
+	// and realtime light tiling parameters; these can change every frame.
+	if ( pStage->shaderBinder == BindShaderLightMapping ) {
+		if ( glConfig.realtimeLighting || R_ShadowMappingEnabled() ) {
+			pStage->dynamic = true;
+		}
+	}
 }
 
 // UpdateSurface*() functions will actually write the uniform values to the SSBO
@@ -870,6 +879,14 @@ void BindShaderLightMapping( Material* material ) {
 		gl_lightMappingShaderMaterial->SetUniform_LightTilesBindless(
 			GL_BindToTMU( BIND_LIGHTTILES, tr.lighttileRenderImage )
 		);
+
+		// Bind shadow atlas (bindless) when shadow mapping is enabled
+		if ( R_ShadowMappingEnabled() ) {
+			image_t* shadowAtlas = shadowMapManager.GetShadowAtlas( &backEndData[ backEnd.smpFrame ]->shadowData.shadowAtlas );
+			if ( shadowAtlas ) {
+				gl_lightMappingShaderMaterial->SetUniform_ShadowAtlasBindless( GL_BindToTMU( BIND_SHADOWATLAS, shadowAtlas ) );
+			}
+		}
 	}
 
 	gl_lightMappingShaderMaterial->SetUniform_ViewOrigin( backEnd.orientation.viewOrigin );

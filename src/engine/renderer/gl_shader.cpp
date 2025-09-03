@@ -1657,7 +1657,8 @@ std::string GLShaderManager::ShaderPostProcess( GLShader *shader, const std::str
 		+ ") uniform materialsUBO {\n"
 		"	Material materials[" + std::to_string( count ) + "]; \n"
 		"};\n\n";
-
+	Log::Notice("Shader name: %s", shader->_name);
+	Log::Notice("%s", materialStruct + materialBlock + texDataBlock + materialDefines);
 	std::string shaderMain = RemoveUniformsFromShaderText( shaderText, shader->_materialSystemUniforms );
 
 	std::string newShaderText = "#define USE_MATERIAL_SYSTEM\n" + materialStruct + materialBlock + texDataBlock + materialDefines;
@@ -2408,25 +2409,31 @@ GLShader_genericMaterial::GLShader_genericMaterial() :
 }
 
 GLShader_lightMapping::GLShader_lightMapping() :
-	GLShader( "lightMapping", ATTR_POSITION | ATTR_TEXCOORD | ATTR_QTANGENT | ATTR_COLOR,
-		false, "lightMapping", "lightMapping" ),
-	u_DiffuseMap( this ),
-	u_NormalMap( this ),
-	u_HeightMap( this ),
-	u_MaterialMap( this ),
-	u_LightMap( this ),
-	u_DeluxeMap( this ),
-	u_GlowMap( this ),
-	u_EnvironmentMap0( this ),
-	u_EnvironmentMap1( this ),
-	u_LightGrid1( this ),
-	u_LightGrid2( this ),
-	u_LightTiles( this ),
-	u_TextureMatrix( this ),
-	u_SpecularExponent( this ),
-	u_ColorModulateColorGen_Float( this ),
-	u_ColorModulateColorGen_Uint( this ),
-	u_Color_Float( this ),
+    GLShader( "lightMapping", ATTR_POSITION | ATTR_TEXCOORD | ATTR_QTANGENT | ATTR_COLOR,
+        false, "lightMapping", "lightMapping" ),
+    u_DiffuseMap( this ),
+    u_NormalMap( this ),
+    u_HeightMap( this ),
+    u_MaterialMap( this ),
+    u_LightMap( this ),
+    u_DeluxeMap( this ),
+    u_GlowMap( this ),
+    u_EnvironmentMap0( this ),
+    u_EnvironmentMap1( this ),
+    u_LightGrid1( this ),
+    u_LightGrid2( this ),
+    u_LightTiles( this ),
+    u_ShadowAtlas( this ),
+    u_ShadowParams( this ),
+    u_ShadowMatrices( this ),
+    u_ShadowLightInfo( this ),
+    u_CascadeSplits( this ),
+    u_ShadowTechnique( this ),
+    u_TextureMatrix( this ),
+    u_SpecularExponent( this ),
+    u_ColorModulateColorGen_Float( this ),
+    u_ColorModulateColorGen_Uint( this ),
+    u_Color_Float( this ),
 	u_Color_Uint( this ),
 	u_AlphaThreshold( this ),
 	u_ViewOrigin( this ),
@@ -2450,28 +2457,31 @@ GLShader_lightMapping::GLShader_lightMapping() :
 	GLCompileMacro_USE_VERTEX_ANIMATION( this ),
 	GLCompileMacro_USE_DELUXE_MAPPING( this ),
 	GLCompileMacro_USE_GRID_LIGHTING( this ),
-	GLCompileMacro_USE_GRID_DELUXE_MAPPING( this ),
-	GLCompileMacro_USE_HEIGHTMAP_IN_NORMALMAP( this ),
-	GLCompileMacro_USE_RELIEF_MAPPING( this ),
-	GLCompileMacro_USE_REFLECTIVE_SPECULAR( this ),
-	GLCompileMacro_USE_PHYSICAL_MAPPING( this )
+    GLCompileMacro_USE_GRID_DELUXE_MAPPING( this ),
+    GLCompileMacro_USE_HEIGHTMAP_IN_NORMALMAP( this ),
+    GLCompileMacro_USE_RELIEF_MAPPING( this ),
+    GLCompileMacro_USE_REFLECTIVE_SPECULAR( this ),
+    GLCompileMacro_USE_PHYSICAL_MAPPING( this ),
+    GLCompileMacro_USE_SHADOW_MAPPING( this )
 {
 }
 
 void GLShader_lightMapping::SetShaderProgramUniforms( ShaderProgramDescriptor *shaderProgram )
 {
-	glUniform1i( glGetUniformLocation( shaderProgram->id, "u_DiffuseMap" ), BIND_DIFFUSEMAP );
-	glUniform1i( glGetUniformLocation( shaderProgram->id, "u_NormalMap" ), BIND_NORMALMAP );
-	glUniform1i( glGetUniformLocation( shaderProgram->id, "u_HeightMap" ), BIND_HEIGHTMAP );
-	glUniform1i( glGetUniformLocation( shaderProgram->id, "u_MaterialMap" ), BIND_MATERIALMAP );
-	glUniform1i( glGetUniformLocation( shaderProgram->id, "u_LightMap" ), BIND_LIGHTMAP );
-	glUniform1i( glGetUniformLocation( shaderProgram->id, "u_LightGrid1" ), BIND_LIGHTGRID1 );
-	glUniform1i( glGetUniformLocation( shaderProgram->id, "u_DeluxeMap" ), BIND_DELUXEMAP );
-	glUniform1i( glGetUniformLocation( shaderProgram->id, "u_LightGrid2" ), BIND_LIGHTGRID2 );
-	glUniform1i( glGetUniformLocation( shaderProgram->id, "u_GlowMap" ), BIND_GLOWMAP );
-	glUniform1i( glGetUniformLocation( shaderProgram->id, "u_EnvironmentMap0" ), BIND_ENVIRONMENTMAP0 );
-	glUniform1i( glGetUniformLocation( shaderProgram->id, "u_EnvironmentMap1" ), BIND_ENVIRONMENTMAP1 );
-	glUniform1i( glGetUniformLocation( shaderProgram->id, "u_LightTiles" ), BIND_LIGHTTILES );
+    glUniform1i( glGetUniformLocation( shaderProgram->id, "u_DiffuseMap" ), BIND_DIFFUSEMAP );
+    glUniform1i( glGetUniformLocation( shaderProgram->id, "u_NormalMap" ), BIND_NORMALMAP );
+    glUniform1i( glGetUniformLocation( shaderProgram->id, "u_HeightMap" ), BIND_HEIGHTMAP );
+    glUniform1i( glGetUniformLocation( shaderProgram->id, "u_MaterialMap" ), BIND_MATERIALMAP );
+    glUniform1i( glGetUniformLocation( shaderProgram->id, "u_LightMap" ), BIND_LIGHTMAP );
+    glUniform1i( glGetUniformLocation( shaderProgram->id, "u_LightGrid1" ), BIND_LIGHTGRID1 );
+    glUniform1i( glGetUniformLocation( shaderProgram->id, "u_DeluxeMap" ), BIND_DELUXEMAP );
+    glUniform1i( glGetUniformLocation( shaderProgram->id, "u_LightGrid2" ), BIND_LIGHTGRID2 );
+    glUniform1i( glGetUniformLocation( shaderProgram->id, "u_GlowMap" ), BIND_GLOWMAP );
+    glUniform1i( glGetUniformLocation( shaderProgram->id, "u_EnvironmentMap0" ), BIND_ENVIRONMENTMAP0 );
+    glUniform1i( glGetUniformLocation( shaderProgram->id, "u_EnvironmentMap1" ), BIND_ENVIRONMENTMAP1 );
+    glUniform1i( glGetUniformLocation( shaderProgram->id, "u_LightTiles" ), BIND_LIGHTTILES );
+    // Shadow atlas sampler binding
+    glUniform1i( glGetUniformLocation( shaderProgram->id, "u_ShadowAtlas" ), BIND_SHADOWATLAS );
 }
 
 GLShader_lightMappingMaterial::GLShader_lightMappingMaterial() :
