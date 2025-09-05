@@ -28,8 +28,9 @@ uniform mat4 u_ShadowMatrices[16]; // lightIndex * 4 + cascadeIndex
 // Cascade splits for directional lights
 uniform vec4 u_CascadeSplits[4]; // Per light cascade splits
 
-// Light shadow info (using vec4 instead of ivec4 for compatibility)
-uniform vec4 u_ShadowLightInfo[4]; // x: technique, y: numCascades, z: atlasOffset.x, w: atlasOffset.y
+// Light shadow info per shadow slot (vec4 for portability)
+// x: lightIndex in u_Lights (scene/UBO index), y: numCascades, z: atlasOffset.x, w: atlasOffset.y
+uniform vec4 u_ShadowLightInfo[4];
 
 // Current technique being used
 uniform int u_ShadowTechnique;
@@ -186,17 +187,17 @@ int SelectShadowCascade(float viewDepth, int lightIndex) {
 
 // Main shadow calculation function
 float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lightIndex) {
-	if (lightIndex < 0 || lightIndex >= 4) {
-		return 1.0; // No shadow
-	}
+    if (lightIndex < 0 || lightIndex >= 4) {
+        return 1.0; // No shadow
+    }
 
-	vec4 lightInfo = u_ShadowLightInfo[lightIndex];
-	int technique = int(lightInfo.x);
-	int numCascades = int(lightInfo.y);
+    vec4 lightInfo = u_ShadowLightInfo[lightIndex];
+    int numCascades = int(lightInfo.y);
 
-	if (technique == 0 || technique == 1) { // NONE or BLOB
-		return 1.0; // No shadow mapping
-	}
+    // Early out if shadow mapping is disabled at runtime
+    if (u_ShadowTechnique <= 1) {
+        return 1.0;
+    }
 
 	// Calculate view-space depth for cascade selection
 	float viewDepth = length(worldPos - viewOrigin);

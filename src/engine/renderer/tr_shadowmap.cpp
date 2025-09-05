@@ -25,6 +25,7 @@ along with Daemon Source Code.  If not, see <http://www.gnu.org/licenses/>.
 // tr_shadowmap.cpp - Shadow mapping system implementation
 
 #include "tr_local.h" // Now includes all shadow mapping structs
+#include <algorithm>
 
 // Global shadow map manager instance
 ShadowMapManager shadowMapManager; // Still a singleton, but operates on passed shadowData_t
@@ -81,7 +82,9 @@ void ShadowMapManager::BeginFrame() {
 		region.lightIndex = -1;
 		region.cascadeIndex = -1;
 	}
-	sd->shadowAtlas.allocatedRegions = 0;
+    sd->shadowAtlas.allocatedRegions = 0;
+
+    // No per-scene shadow map indirection kept on CPU anymore
 }
 
 void ShadowMapManager::EndFrame() {
@@ -379,14 +382,16 @@ bool ShadowMapManager::SetupLightShadows(refLight_t* light) {
 		}
 	}
 
-	if (setupSuccess) {
-		sd->numShadowLights++;
-		Log::Debug("Successfully set up shadow for light %d, total shadow lights now: %d", lightIndex, sd->numShadowLights);
-		return true;
-	} else {
-		Log::Debug("Failed to set up shadow for light %d", lightIndex);
-		return false;
-	}
+    if (setupSuccess) {
+        // Record the scene light index for mapping purposes
+        lightShadow->sceneIndex = (&light[0] - &tr.refdef.lights[0]); // will be corrected by caller map
+        sd->numShadowLights++;
+        Log::Debug("Successfully set up shadow for light %d, total shadow lights now: %d", lightIndex, sd->numShadowLights);
+        return true;
+    } else {
+        Log::Debug("Failed to set up shadow for light %d", lightIndex);
+        return false;
+    }
 }
 
 void ShadowMapManager::SetupLightMatrix(refLight_t* light, shadowMap_t* shadowMap, const vec3_t* bounds) {
@@ -488,10 +493,45 @@ void ShadowMapManager::UpdateShadowMaps() {
     int usedTiles = sd->shadowAtlas.allocatedRegions; // reset earlier in BeginFrame
 
     int lightsProcessed = 0;
+
+    // Pass 0: always try to shadow the first directional light (sun) first so it never
+    // loses atlas space to dynamic lights when capacity is tight.
+    for (int i = 0; i < sceneNumLights && sd->numShadowLights < maxShadowLights; i++) {
+        refLight_t* light = &sceneLights[i];
+        if (light->rlType != refLightType_t::RL_DIRECTIONAL) continue;
+
+        Log::Debug("(Priority) Setting up shadow for directional scene light %d", i);
+
+        int requiredTiles = r_shadowCascades.Get();
+        if (requiredTiles < 1) requiredTiles = 1;
+
+        if (usedTiles + requiredTiles > atlasCapacity) {
+            Log::Warn("Skipping sun light %d: not enough atlas space (need %d tiles, have %d/%d)",
+                      i, requiredTiles, atlasCapacity - usedTiles, atlasCapacity);
+            break; // no point continuing if even sun doesn't fit
+        }
+
+        if (SetupLightShadows(light)) {
+            Log::Debug("Successfully set up shadow for directional light %d", i);
+            // Map scene index to shadow slot (last appended)
+            sd->lightShadows[sd->numShadowLights - 1].sceneIndex = i;
+            lightsProcessed++;
+            usedTiles += requiredTiles;
+        }
+        // Whether success or not, only prioritize the first directional; then continue
+        break;
+    }
+
+    // Pass 1: process remaining lights in order, skipping any directional already handled.
     for (int i = 0; i < sceneNumLights && sd->numShadowLights < maxShadowLights; i++) {
         refLight_t* light = &sceneLights[i];
         Log::Debug("Setting up shadow for scene light %d at (%.1f, %.1f, %.1f)",
                    i, light->origin[0], light->origin[1], light->origin[2]);
+
+        // Skip additional directional lights in this pass (first one handled above)
+        if (light->rlType == refLightType_t::RL_DIRECTIONAL && lightsProcessed > 0) {
+            continue;
+        }
 
         // Tiles required for this light
         int requiredTiles = (light->rlType == refLightType_t::RL_DIRECTIONAL) ? r_shadowCascades.Get() : 1;
@@ -506,6 +546,7 @@ void ShadowMapManager::UpdateShadowMaps() {
 
         if (SetupLightShadows(light)) {
             Log::Debug("Successfully set up shadow for scene light %d", i);
+            sd->lightShadows[sd->numShadowLights - 1].sceneIndex = i;
             lightsProcessed++;
             usedTiles += requiredTiles;
         } else {
@@ -514,6 +555,15 @@ void ShadowMapManager::UpdateShadowMaps() {
             Log::Debug("Failed to set up shadow for scene light %d; stopping to preserve index alignment", i);
             break;
         }
+    }
+
+    // After gathering, sort shadowed lights by their scene light index so
+    // u_ShadowLightInfo[slot].x is strictly ascending (for GPU merge).
+    if (sd->numShadowLights > 1) {
+        std::sort(sd->lightShadows, sd->lightShadows + sd->numShadowLights,
+                  [](const lightShadowInfo_t& a, const lightShadowInfo_t& b) {
+                      return a.sceneIndex < b.sceneIndex;
+                  });
     }
 
     Log::Debug("Updated shadow maps: %d shadowed lights prepared from %d scene lights", sd->numShadowLights, sceneNumLights);
@@ -924,16 +974,16 @@ void ShadowMapManager::GetShadowLightInfo(vec4_t* lightInfo, int maxLights) cons
 	for (int lightIndex = 0; lightIndex < sd->numShadowLights && lightIndex < maxLights && lightIndex < MAX_SHADOW_LIGHTS; lightIndex++) {
 		const lightShadowInfo_t* lightShadow = &sd->lightShadows[lightIndex];
 
-		lightInfo[lightIndex][0] = static_cast<float>(lightShadow->cascades[0].technique); // technique
+		lightInfo[lightIndex][0] = static_cast<float>(lightShadow->sceneIndex); // sceneIndex
 		lightInfo[lightIndex][1] = static_cast<float>(lightShadow->numCascades); // numCascades
 		lightInfo[lightIndex][2] = static_cast<float>(lightShadow->cascades[0].atlasOffset[0]); // atlasOffset.x
 		lightInfo[lightIndex][3] = static_cast<float>(lightShadow->cascades[0].atlasOffset[1]); // atlasOffset.y
 
-		Log::Debug("Light %d info: technique=%d, cascades=%d, offset=(%d,%d)",
-		          lightIndex, static_cast<int>(lightInfo[lightIndex][0]),
-		          static_cast<int>(lightInfo[lightIndex][1]),
-		          static_cast<int>(lightInfo[lightIndex][2]),
-		          static_cast<int>(lightInfo[lightIndex][3]));
+    Log::Debug("Light %d info: lightIndex=%d, cascades=%d, offset=(%d,%d)",
+              lightIndex, static_cast<int>(lightInfo[lightIndex][0]),
+              static_cast<int>(lightInfo[lightIndex][1]),
+              static_cast<int>(lightInfo[lightIndex][2]),
+              static_cast<int>(lightInfo[lightIndex][3]));
 	}
 
 	// Log all light info for debugging
@@ -959,6 +1009,8 @@ void ShadowMapManager::GetCascadeSplits(vec4_t* splits, int maxLights) const {
 		Vector4Set(splits[lightIndex], 10.0f, 50.0f, 200.0f, 1000.0f);
 	}
 }
+
+// No CPU-side scene->shadow map export; GPU merges tile lists with slot list
 
 // Light matrix calculation functions
 void ShadowMapManager::SetupDirectionalLightMatrix(refLight_t* light, shadowMap_t* shadowMap, matrix_t viewMatrix, matrix_t projectionMatrix) {

@@ -73,6 +73,7 @@ static void EnableAvailableFeatures()
 		}
 	}
 
+
 	if ( glConfig.realtimeLighting ) {
 		glConfig.realtimeLightLayers = r_realtimeLightLayers.Get();
 
@@ -829,7 +830,14 @@ void ProcessShaderLightMapping( const shaderStage_t* pStage ) {
 
 	gl_lightMappingShader->SetReflectiveSpecular( enableReflectiveSpecular );
 
-	gl_lightMappingShader->SetPhysicalShading( pStage->enablePhysicalMapping );
+    gl_lightMappingShader->SetPhysicalShading( pStage->enablePhysicalMapping );
+
+    // Enable shadow mapping permutation only for legacy entity path (non-BSP)
+    if ( !tess.bspSurface ) {
+        gl_lightMappingShader->SetShadowMapping( R_ShadowMappingEnabled() );
+    } else {
+        gl_lightMappingShader->SetShadowMapping( false );
+    }
 }
 
 void ProcessShaderReflection( const shaderStage_t* pStage ) {
@@ -1234,6 +1242,42 @@ void Render_lightMapping( shaderStage_t *pStage )
 		gl_lightMappingShader->SetUniform_GlowMapBindless(
 			GL_BindToTMU( BIND_GLOWMAP, pStage->bundle[TB_GLOWMAP].image[0] )
 		);
+	}
+
+	// Upload shadow uniforms for the legacy path after binding program (entities only)
+	if ( R_ShadowMappingEnabled() && !tess.bspSurface )
+	{
+		// Shadow params
+		vec4_t shadowParams;
+		shadowParams[0] = r_shadowBias.Get();           // bias
+		shadowParams[1] = r_shadowESMExponent.Get();    // ESM exponent
+		shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
+		shadowParams[3] = 0.0f;                         // unused
+		gl_lightMappingShader->SetUniform_ShadowParams( shadowParams );
+
+		// Matrices
+		matrix_t shadowMatrices[16];
+		shadowMapManager.GetShadowMatrices( shadowMatrices, 16 );
+		gl_lightMappingShader->SetUniform_ShadowMatrices( shadowMatrices, 16 );
+
+		// Light info
+		vec4_t shadowLightInfo[4];
+		shadowMapManager.GetShadowLightInfo( shadowLightInfo, 4 );
+		gl_lightMappingShader->SetUniform_ShadowLightInfo( shadowLightInfo, 4 );
+
+		// Cascade splits
+		vec4_t cascadeSplits[4];
+		shadowMapManager.GetCascadeSplits( cascadeSplits, 4 );
+		gl_lightMappingShader->SetUniform_CascadeSplits( cascadeSplits, 4 );
+
+		// Technique
+		gl_lightMappingShader->SetUniform_ShadowTechnique( r_shadows.Get() );
+
+		// Bind atlas
+		image_t* shadowAtlas = shadowMapManager.GetShadowAtlas( &backEndData[ backEnd.smpFrame ]->shadowData.shadowAtlas );
+		if ( shadowAtlas ) {
+			gl_lightMappingShader->SetUniform_ShadowAtlasBindless( GL_BindToTMU( BIND_SHADOWATLAS, shadowAtlas ) );
+		}
 	}
 
 	if ( r_profilerRenderSubGroups.Get() && !( pStage->stateBits & GLS_DEPTHMASK_TRUE ) ) {

@@ -165,10 +165,11 @@ layout(std140) uniform u_Lights {
 
 uniform int u_numLights;
 
-void computeDynamicLight( uint idx, vec3 P, vec3 normal, vec3 viewOrigin, vec3 viewDir, vec4 diffuse,
+void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 viewOrigin, vec3 viewDir, vec4 diffuse,
 	vec4 material, inout vec4 color )
 {
 	Light light = GetLight( idx );
+
 	vec3 L;
 	float attenuation;
 
@@ -198,12 +199,12 @@ void computeDynamicLight( uint idx, vec3 P, vec3 normal, vec3 viewOrigin, vec3 v
         attenuation = 1.0;
     }
 
-#if defined(USE_SHADOW_MAPPING)
-	float shadowFactor = CalculateShadowFactor(P, viewOrigin, normal, int(idx)); // P and normal are worldPos and normal, idx is lightIndex
-	// Subtractive overlay: darken precomputed lighting too (prototype)
-#else
 	float shadowFactor = 1.0;
-#endif  // defined(USE_SHADOW_MAPPING)
+#if defined(USE_SHADOW_MAPPING)
+	if (shadowSlot >= 0) {
+		shadowFactor = clamp(CalculateShadowFactor(P, viewOrigin, normal, shadowSlot), 0.0, 1.0);
+	}
+#endif
 	// Apply shadow to this light's contribution, not the accumulated color
 	vec3 lightRGB = attenuation * attenuation * shadowFactor * light.color;
     computeDeluxeLight(
@@ -241,9 +242,22 @@ void computeDynamicLights( vec3 P, vec3 normal, vec3 viewOrigin, vec3 viewDir, v
 
 	vec2 tile = floor( gl_FragCoord.xy * ( 1.0 / float( TILE_SIZE ) ) ) + 0.5;
 
+	// Count active shadow slots from u_ShadowLightInfo (sorted by light index)
+	int numShadowSlots = 0;
+#if defined(USE_SHADOW_MAPPING)
+	if (u_ShadowTechnique > 1) {
+		for (int s = 0; s < 4; s++) {
+			if (u_ShadowLightInfo[s].y > 0.5) numShadowSlots++;
+		}
+	}
+#endif
+
 	for( uint layer = 0u; layer < uint( NUM_LIGHT_LAYERS ); layer++ ) {
 		uint lightCount = 0u;
 		idxs_t idxs = fetchIdxs( tileScale * vec3( tile, float( layer ) + 0.5 ), u_LightTiles );
+
+		// Merge this layer's ascending light indices with ascending shadow slots
+		int slot = 0;
 
 		for( uint i = 0u; i < lightsPerLayer; i++ ) {
 			uint idx = nextIdx( lightCount, idxs );
@@ -256,7 +270,18 @@ void computeDynamicLights( vec3 P, vec3 normal, vec3 viewOrigin, vec3 viewDir, v
 			Subtract 1 because 0 means there's no light */
 			idx = ( idx - 1u ) * uint( NUM_LIGHT_LAYERS ) + layer;
 
-			computeDynamicLight( idx, P, normal, viewOrigin, viewDir, diffuse, material, color );
+			// Advance slot cursor to match or exceed this idx
+			int matchedSlot = -1;
+#if defined(USE_SHADOW_MAPPING)
+			while (slot < numShadowSlots && uint(u_ShadowLightInfo[slot].x) < idx) {
+				slot++;
+			}
+			if (slot < numShadowSlots && uint(u_ShadowLightInfo[slot].x) == idx) {
+				matchedSlot = slot;
+			}
+#endif
+
+			computeDynamicLight( idx, matchedSlot, P, normal, viewOrigin, viewDir, diffuse, material, color );
 			lightCount++;
 		}
 		#if defined(r_showLightTiles)

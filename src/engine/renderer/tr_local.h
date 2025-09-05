@@ -409,14 +409,14 @@ enum class ssaoMode {
 	};
 
 	// a structure matching the GLSL struct shaderLight in std140 layout
-	struct shaderLight_t {
-		vec3_t  center;
-		float   radius;
-		vec3_t  color;
-		float   type;
-		vec3_t  direction;
-		float   angle;
-	};
+struct shaderLight_t {
+    vec3_t  center;
+    float   radius;
+    vec3_t  color;
+    float   type;
+    vec3_t  direction;
+    float   angle;
+};
 
 // a trRefEntity_t has all the information passed in by
 // the client game, as well as some locally derived info
@@ -2455,9 +2455,11 @@ struct lightShadowInfo_t {
     int numCascades;
     shadowMap_t cascades[MAX_SHADOW_CASCADES];
     float cascadeSplits[MAX_SHADOW_CASCADES];
+    // Index of the corresponding scene light (refdef.lights[sceneIndex])
+    int sceneIndex;
 };
 
-// Encapsulates all frame-dependent shadow mapping data
+    // Encapsulates all frame-dependent shadow mapping data
 struct shadowData_t {
     shadowAtlas_t shadowAtlas;
     lightShadowInfo_t lightShadows[MAX_SHADOW_LIGHTS];

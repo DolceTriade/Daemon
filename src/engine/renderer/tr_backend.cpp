@@ -25,6 +25,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "tr_local.h"
 #include "gl_shader.h"
 #include "Material.h"
+#include <algorithm>
 #if defined( REFBONE_NAMES )
 	#include <client/client.h>
 #endif
@@ -3674,9 +3675,11 @@ Also called by RE_EndRegistration
 */
 void RB_ShowImages()
 {
-	image_t *image;
-	float   x, y, w, h;
-	int     start, end;
+    image_t *image;
+    // top-left position and current row tracking
+    float   x, y;
+    float   rowMaxH = 0.0f;
+    int     start, end;
 
 	GLIMP_LOGCOMMENT( "--- RB_ShowImages ---" );
 
@@ -3715,49 +3718,67 @@ void RB_ShowImages()
 		backEnd.viewParms.viewportY + backEnd.viewParms.viewportHeight, -99999, 99999 );
 	GL_LoadProjectionMatrix( ortho );
 
-	size_t count = 0;
-	for ( size_t i = 0; i < tr.images.size(); i++ )
-	{
-		image = tr.images[ i ];
-		if ( !Str::IsIPrefix( "*shadow", image->name ) ) {
+    // Layout parameters based on viewport and scale factor
+    const float scale = r_showImages->value; // treat as multiplier; <= 0 means disabled
+
+    const float vpX = backEnd.viewParms.viewportX;
+    const float vpY = backEnd.viewParms.viewportY;
+    const float vpW = backEnd.viewParms.viewportWidth;
+    const float vpH = backEnd.viewParms.viewportHeight;
+
+    x = vpX;
+    y = vpY;
+
+    size_t count = 0;
+    for ( size_t i = 0; i < tr.images.size(); i++ )
+    {
+        image = tr.images[ i ];
+        if ( !image ) {
+            continue;
+        }
+
+		if ( !Str::IsPrefix( "*shadow", image->name ) )
+		{
 			continue;
 		}
+		float aspect = static_cast<float>( image->uploadHeight ) / image->uploadWidth;
+        // Compute draw size using the original upload size scaled by r_showImages
+        float w = std::max( 1.0f, 512.0f * scale );
+        float h = std::max( 1.0f, 512.0f * aspect * scale );
 
-		/*
-		   if(image->bits & (IF_RGBA16F | IF_RGBA32F | IF_LA16F | IF_LA32F))
-		   {
-		   // don't render float textures using FFP
-		   continue;
-		   }
-		 */
+        // Wrap to next row if this image would exceed the viewport width
+        if ( x + w > vpX + vpW )
+        {
+            x = vpX;
+            y += rowMaxH;
+            rowMaxH = 0.0f;
+        }
 
-		w = windowConfig.vidWidth / 20;
-		h = windowConfig.vidHeight / 15;
-		x = i % 20 * w;
-		y = i / 20 * h;
+        // Stop if we run out of vertical space
+        if ( y + h > vpY + vpH )
+        {
+            break;
+        }
 
-		// show in proportional size in mode 2
-		if ( r_showImages->integer == 2 )
-		{
-			w *= image->uploadWidth / 512.0f;
-			h *= image->uploadHeight / 512.0f;
-		}
+        // bind u_ColorMap
+        gl_genericShader->SetUniform_ColorMapBindless(
+            GL_BindToTMU( 0, image )
+        );
 
-		// bind u_ColorMap
-		gl_genericShader->SetUniform_ColorMapBindless(
-			GL_BindToTMU( 0, image )
-		);
+        Tess_InstantQuad( *gl_genericShader, x, y, w, h );
 
-		Tess_InstantQuad( *gl_genericShader, x, y, w, h );
-		count++;
-	}
+        // Advance in the row and track row height
+        x += w;
+        rowMaxH = std::max( rowMaxH, h );
+        count++;
+    }
 
 	GL_PopMatrix();
 
 	glFinish();
 
-	end = ri.Milliseconds();
-	Log::Debug("%i msec to draw all images", end - start );
+    end = ri.Milliseconds();
+    Log::Debug("%i msec to draw %zu images (scale %.3f)", end - start, count, scale );
 
 	GL_CheckErrors();
 }
@@ -3772,11 +3793,11 @@ const RenderCommand *SwapBuffersCommand::ExecuteSelf( ) const
 	// finish any 2D drawing if needed
 	Tess_End();
 
-	// texture swapping test
-	if ( r_showImages->integer )
-	{
-		RB_ShowImages();
-	}
+    // texture debugging view when enabled (use r_showImages as scale)
+    if ( r_showImages->value > 0.0f )
+    {
+        RB_ShowImages();
+    }
 
 	GLimp_EndFrame();
 
