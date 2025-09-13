@@ -651,14 +651,16 @@ void RE_RenderScene( const refdef_t *fd )
 
 	VectorCopy( fd->vieworg, parms.pvsOrigin );
 	Vector4Copy( fd->gradingWeights, parms.gradingWeights );
-    if ( R_ShadowMappingEnabled() ) {
+    // Ensure clear uses the main camera view parameters
+    tr.viewParms = parms;
+	if ( R_ShadowMappingEnabled() ) {
         R_BeginShadowMapping();
         // Frontend prepares shadow data so backend is draw-only
         shadowMapManager.UpdateShadowMaps();
         shadowMapManager.BuildShadowViews();
+		// ShadowMapping messes with this view, so ensure it is reset.
+		tr.viewParms = parms;
     }
-    // Ensure clear uses the main camera view parameters
-    tr.viewParms = parms;
     R_AddClearBufferCmd();
 	R_AddSetupLightsCmd();
 

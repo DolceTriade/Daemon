@@ -2113,6 +2113,8 @@ void R_GatherShadowView( const viewParms_t *inView, const matrix_t projectionMat
 	// Preserve current global view/orientation to avoid leaking into the main view path
 	viewParms_t savedViewParms = tr.viewParms;
 	orientationr_t savedOrientation = tr.orientation;
+	bool oldAreaMaskModified = tr.refdef.areamaskModified;
+	tr.refdef.areamaskModified = true;
 
 	// Seed view parms and build world matrices from orientation
 	uint viewID = tr.viewParms.viewID;

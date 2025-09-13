@@ -184,7 +184,7 @@ public:
 			{ GL_RG32F, { "RG32F", 8 } },
 
 			// Compressed formats here use imageDataSize multiplier as blocksize
-		
+
 			/* Generic compressed format that does not have any specified actual format
 			and implementations can compress it in whatever way
 			GL4.6 spec (https://registry.khronos.org/OpenGL/specs/gl/glspec46.core.pdf):
@@ -223,7 +223,7 @@ public:
 			 where each block contains 64 or 128 bits of texel data. The image is encoded as a normal 2D raster image in which each 4×4 block
 			 is treated as a single pixel. If an RGTC image has a width or height that is not a multiple of four,
 			 the data corresponding to texels outside the image are irrelevant and undefined.
-		   
+
 			 When an RGTC image with a width of w, height of h, and block size of blocksize (8 or 16 bytes) is decoded,
 			 the corresponding image size (in bytes) is: ceil( w / 4 ) * ceil( h / 4 ) * blocksize."
 
@@ -296,7 +296,7 @@ public:
 		{
 			typeLen = std::max( typeLen, kv.second.length() );
 		}
-	
+
 		for ( const auto& kv : imageFormatNameSize )
 		{
 			formatLen = std::max( formatLen, kv.second.first.length() );
@@ -361,7 +361,7 @@ public:
 
 			int imageDataSize = 0;
 			texels += imageDataSize;
-		
+
 			if ( !imageFormatNameSize.count( image->internalFormat ) )
 			{
 				Log::Debug( "Undocumented image format %i (%X) for image %s",
@@ -417,7 +417,7 @@ public:
 						if ( image->filterType == filterType_t::FT_DEFAULT ) {
 							numMips = log2f( std::max( std::max( imageWidth, imageHeight ), imageLayers ) ) + 1;
 						}
-					
+
 						for ( int j = 0; j < numMips; j++ ) {
 							imageDataSize += imageWidth * imageHeight * imageLayers;
 							imageWidth >>= imageWidth > 1 ? 1 : 0;
@@ -2737,7 +2737,12 @@ void R_CreateBuiltinImages()
 	tr.whiteImage = R_CreateImage( "_white", ( const byte ** ) &dataPtr, DIMENSION, DIMENSION, 1, imageParams );
 
 	// we use a solid black image instead of disabling texturing
-	memset( data, 0, sizeof( data ) );
+	// red
+	for ( x = DIMENSION * DIMENSION, out = data; x; --x, out += 4 )
+	{
+		out[ 0 ] = out[ 1 ] = out[ 2 ] = 0;
+		out[ 3 ] = 255;
+	}
 	tr.blackImage = R_CreateImage( "_black", ( const byte ** ) &dataPtr, DIMENSION, DIMENSION, 1, imageParams );
 
 	// red

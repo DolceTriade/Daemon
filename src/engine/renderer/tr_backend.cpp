@@ -3673,6 +3673,7 @@ was there.  This is used to test for texture thrashing.
 Also called by RE_EndRegistration
 ===============
 */
+Cvar::Cvar<std::string> r_showImagesFilter("r_showImages_filter", "Filter which images show in r_showImages", CVAR_TEMP, "");
 void RB_ShowImages()
 {
     image_t *image;
@@ -3737,7 +3738,7 @@ void RB_ShowImages()
             continue;
         }
 
-		if ( !Str::IsPrefix( "*shadow", image->name ) )
+		if ( !r_showImagesFilter.Get().empty() && !Str::IsPrefix( r_showImagesFilter.Get(), image->name ) )
 		{
 			continue;
 		}

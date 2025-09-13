@@ -361,6 +361,8 @@ class MaterialSystem {
 	void UpdateDynamicSurfaces();
 
 	void QueueSurfaceCull( const uint32_t viewID, const vec3_t origin, const frustum_t* frustum );
+	// Allocate the next free viewID, queue culling data for it, and return the assigned ID
+	uint32_t QueueSurfaceCullAuto( const vec3_t origin, const frustum_t* frustum );
 	void DepthReduction();
 	void CullSurfaces();
 	

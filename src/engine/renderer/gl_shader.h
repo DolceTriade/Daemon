@@ -3506,9 +3506,6 @@ class GLShader_lightMappingMaterial :
 	public GLCompileMacro_USE_SHADOW_MAPPING {
 	public:
 	GLShader_lightMappingMaterial();
-	void SetShaderProgramUniforms( ShaderProgramDescriptor *shaderProgram ) override {
-		glUniform1i( glGetUniformLocation( shaderProgram->id, "u_ShadowAtlas" ), BIND_SHADOWATLAS );
-	}
 };
 
 class GLShader_reflection :

@@ -233,7 +233,9 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
 	// Sample shadow map with PCF
 	float exponent = u_ShadowParams.y;
 	int pcfFilter = int(u_ShadowParams.z);
-	vec2 shadowMapSize = vec2(r_shadowMapSize);
+    // shadowCoord.xy is already transformed into atlas space, so a single texel
+    // step is 1 / r_shadowAtlasSize in each dimension, not 1 / r_shadowMapSize.
+    vec2 shadowMapSize = vec2(r_shadowAtlasSize);
 
 	return SampleShadowPCF(u_ShadowAtlas, shadowCoord, pcfFilter, shadowMapSize, exponent);
 }

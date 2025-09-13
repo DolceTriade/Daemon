@@ -222,7 +222,7 @@ void UpdateSurfaceDataLightMapping( uint32_t* materials, shaderStage_t* pStage, 
 	}
 
     // Shadow mapping uniforms (material system path)
-    if ( glConfig.usingMaterialSystem && R_ShadowMappingEnabled() ) {
+    if ( R_ShadowMappingEnabled() ) {
         // Params
         vec4_t shadowParams;
         shadowParams[0] = r_shadowBias.Get();           // bias
@@ -874,20 +874,17 @@ void BindShaderLightMapping( Material* material ) {
 		gl_lightMappingShaderMaterial->SetUniform_LightGrid2Bindless( GL_BindToTMU( BIND_LIGHTGRID2, tr.lightGrid2Image ) );
 	}
 
-	if ( glConfig.realtimeLighting ) {
+    if ( glConfig.realtimeLighting ) {
 		// bind u_LightTiles
 		gl_lightMappingShaderMaterial->SetUniform_LightTilesBindless(
 			GL_BindToTMU( BIND_LIGHTTILES, tr.lighttileRenderImage )
 		);
 
-		// Bind shadow atlas (bindless) when shadow mapping is enabled
 		if ( R_ShadowMappingEnabled() ) {
 			image_t* shadowAtlas = shadowMapManager.GetShadowAtlas( &backEndData[ backEnd.smpFrame ]->shadowData.shadowAtlas );
-			if ( shadowAtlas ) {
-				gl_lightMappingShaderMaterial->SetUniform_ShadowAtlasBindless( GL_BindToTMU( BIND_SHADOWATLAS, shadowAtlas ) );
-			}
+			gl_lightMappingShaderMaterial->SetUniform_ShadowAtlasBindless( GL_BindToTMU( BIND_SHADOWATLAS, shadowAtlas ) );
 		}
-	}
+    }
 
 	gl_lightMappingShaderMaterial->SetUniform_ViewOrigin( backEnd.orientation.viewOrigin );
 	gl_lightMappingShaderMaterial->SetUniform_numLights( backEnd.refdef.numLights );
@@ -1139,11 +1136,7 @@ void ProcessMaterialLightMapping( Material* material, shaderStage_t* pStage, Mat
 
 	gl_lightMappingShaderMaterial->SetPhysicalShading( pStage->enablePhysicalMapping );
 
-	// Enable shadow mapping if using material system and shadow mapping is enabled
-	if ( R_ShadowMappingEnabled() )
-	{
-		gl_lightMappingShaderMaterial->SetShadowMapping( true );
-	}
+    gl_lightMappingShaderMaterial->SetShadowMapping( R_ShadowMappingEnabled() );
 
 	material->program = gl_lightMappingShaderMaterial->GetProgram( pStage->deformIndex, materialSystem.buildOneShader );
 }
@@ -1564,6 +1557,13 @@ void MaterialSystem::QueueSurfaceCull( const uint32_t viewID, const vec3_t origi
 	VectorCopy( origin, frames[nextFrame].viewFrames[viewID].origin );
 	memcpy( frames[nextFrame].viewFrames[viewID].frustum, frustum, sizeof( frustum_t ) );
 	frames[nextFrame].viewCount++;
+}
+
+uint32_t MaterialSystem::QueueSurfaceCullAuto( const vec3_t origin, const frustum_t* frustum ) {
+    // Allocate the next view slot and queue cull for it
+    uint32_t id = frames[nextFrame].viewCount;
+    QueueSurfaceCull( id, origin, frustum );
+    return id;
 }
 
 void MaterialSystem::DepthReduction() {

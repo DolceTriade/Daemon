@@ -25,6 +25,7 @@ along with Daemon Source Code.  If not, see <http://www.gnu.org/licenses/>.
 // tr_shadowmap.cpp - Shadow mapping system implementation
 
 #include "tr_local.h" // Now includes all shadow mapping structs
+#include "Material.h"
 #include <algorithm>
 
 // Global shadow map manager instance
@@ -130,6 +131,9 @@ void ShadowMapManager::InitAtlas(shadowAtlas_t* atlas) {
 	shadowingMode_t technique = GetShadowTechnique();
 
 	// Create atlas images based on technique
+	// Disable mipmaps on the atlas to avoid cross-tile sampling from lower mips
+    // which can look like write-path contamination in debug views and cause
+    // trilinear bleed between adjacent tiles during shading.
 	int flags = IF_NOPICMIP;
 
 	switch (technique) {
@@ -155,21 +159,21 @@ void ShadowMapManager::InitAtlas(shadowAtlas_t* atlas) {
 			break;
 	}
 
-	// Create color texture with appropriate format
-	imageParams_t imageParams = {};
-	imageParams.bits = flags;
-	imageParams.filterType = filterType_t::FT_LINEAR;
-	imageParams.wrapType = wrapTypeEnum_t::WT_CLAMP;
+    // Create color texture with appropriate format
+    imageParams_t imageParams = {};
+    imageParams.bits = flags;
+    imageParams.filterType = filterType_t::FT_LINEAR;
+    imageParams.wrapType = wrapTypeEnum_t::WT_CLAMP;
 
-	atlas->colorImage = R_CreateImage(va("*shadowAtlas_%d", atlasSize), nullptr, atlasSize, atlasSize, 0, imageParams);
+	atlas->colorImage = R_CreateImage(va("*shadowAtlas_%d", atlasSize), nullptr, atlasSize, atlasSize, 1, imageParams);
 
 	// Create depth buffer for all techniques
 	imageParams_t depthParams = {};
 	depthParams.bits = IF_DEPTH24 | IF_NOPICMIP;
 	depthParams.filterType = filterType_t::FT_NEAREST;
-	depthParams.wrapType = wrapTypeEnum_t::WT_CLAMP;
+	depthParams.wrapType = wrapTypeEnum_t::WT_ONE_CLAMP;
 
-	atlas->depthImage = R_CreateImage(va("*shadowAtlasDepth_%d", atlasSize), nullptr, atlasSize, atlasSize, 0, depthParams);
+	atlas->depthImage = R_CreateImage(va("*shadowAtlasDepth_%d", atlasSize), nullptr, atlasSize, atlasSize, 1, depthParams);
 
 	// Create FBO
 	CreateShadowMapFBO(atlas);
@@ -211,9 +215,9 @@ void ShadowMapManager::CreateShadowMapFBO(shadowAtlas_t* atlas) {
 	R_BindNullFBO();
 }
 
-bool ShadowMapManager::AllocateAtlasRegion(shadowAtlas_t* atlas, int width, int height, vec2_t offset, int lightIndex, int cascade) {
+bool ShadowMapManager::AllocateAtlasRegion(shadowAtlas_t* atlas, int width, int height, vec2_t offset, int sceneIndex, int cascade) {
 	Log::Debug("Attempting to allocate atlas region %dx%d for light %d cascade %d in %dx%d atlas with %d existing regions",
-	          width, height, lightIndex, cascade, atlas->size, atlas->size, atlas->allocatedRegions);
+	          width, height, sceneIndex, cascade, atlas->size, atlas->size, atlas->allocatedRegions);
 
 	// Simple allocation strategy: find first free region that fits
 	// TODO: Implement more sophisticated allocation (bin packing, etc.)
@@ -248,27 +252,25 @@ bool ShadowMapManager::AllocateAtlasRegion(shadowAtlas_t* atlas, int width, int 
 				newRegion.offset[1] = y;
 				newRegion.size[0] = width;
 				newRegion.size[1] = height;
-				newRegion.allocated = true;
-				newRegion.lightIndex = lightIndex;
-				newRegion.cascadeIndex = cascade;
+                newRegion.allocated = true;
+                newRegion.lightIndex = sceneIndex; // store scene light index for stability across sorting
+                newRegion.cascadeIndex = cascade;
 
 				atlas->allocatedRegions++;
 
 				offset[0] = x;
 				offset[1] = y;
 
-				Log::Debug("Successfully allocated region at (%d, %d) size %dx%d for light %d cascade %d",
-				          x, y, width, height, lightIndex, cascade);
-				return true;
-			}
-		}
-	}
+                Log::Debug("Successfully allocated region at (%d, %d) size %dx%d for scene light %d cascade %d",
+                          x, y, width, height, sceneIndex, cascade);
+                return true;
+            }
+        }
+    }
 
 	Log::Warn("Failed to allocate shadow atlas region %dx%d - atlas may be full", width, height);
 	return false;
 }
-
-// Removed AllocateShadowMap and FreeShadowMap as per previous discussion
 
 void ShadowMapManager::SetupESMParams(shadowMap_t* shadowMap) {
 	shadowMap->params.esm.exponent = r_shadowESMExponent.Get();
@@ -284,24 +286,25 @@ void ShadowMapManager::SetupEVSMParams(shadowMap_t* shadowMap) {
 	shadowMap->params.evsm.minVariance = 0.0001f; // Reasonable default
 }
 
-bool ShadowMapManager::SetupLightShadows(refLight_t* light) {
+bool ShadowMapManager::SetupLightShadows(refLight_t* light, int sceneIndex) {
     // Frontend builds shadow descriptors in the frontend buffer
     shadowData_t *sd = &backEndData[tr.smpFrame]->shadowData;
-	int lightIndex = sd->numShadowLights;
+    int lightIndex = sd->numShadowLights;
 	if (lightIndex >= MAX_SHADOW_LIGHTS) {
 		Log::Warn("Light index %d exceeds MAX_SHADOW_LIGHTS (%d)", lightIndex, MAX_SHADOW_LIGHTS);
 		return false;
 	}
 
-	Log::Debug("Setting up shadow for light %d: %s at (%.1f, %.1f, %.1f)",
-	          lightIndex,
-	          (light->rlType == refLightType_t::RL_DIRECTIONAL) ? "directional" :
-	          (light->rlType == refLightType_t::RL_OMNI) ? "point" : "spot",
-	          light->origin[0], light->origin[1], light->origin[2]);
+    Log::Debug("Setting up shadow for light slot %d (scene %d): %s at (%.1f, %.1f, %.1f)",
+              lightIndex, sceneIndex,
+              (light->rlType == refLightType_t::RL_DIRECTIONAL) ? "directional" :
+              (light->rlType == refLightType_t::RL_OMNI) ? "point" : "spot",
+              light->origin[0], light->origin[1], light->origin[2]);
 
 	lightShadowInfo_t* lightShadow = &sd->lightShadows[lightIndex];
 	memset(lightShadow, 0, sizeof(*lightShadow)); // Use sizeof(*lightShadow) for correct size
-	lightShadow->castsShadows = true;
+    lightShadow->castsShadows = true;
+    lightShadow->sceneIndex = sceneIndex;
 
 	// Determine number of cascades based on light type
 	if (light->rlType == refLightType_t::RL_DIRECTIONAL) {
@@ -337,20 +340,20 @@ bool ShadowMapManager::SetupLightShadows(refLight_t* light) {
 		          shadowMap->size[0], shadowMap->size[1]);
 
 		// Allocate atlas region for this shadow map
-		Log::Debug("Allocating atlas region %dx%d for light %d cascade %d",
-		          shadowMap->size[0], shadowMap->size[1], lightIndex, cascade);
+        Log::Debug("Allocating atlas region %dx%d for scene light %d cascade %d",
+                  shadowMap->size[0], shadowMap->size[1], sceneIndex, cascade);
 
-		if (!AllocateAtlasRegion(&sd->shadowAtlas, shadowMap->size[0], shadowMap->size[1],
-		                         shadowMap->atlasOffset, lightIndex, cascade)) {
-			Log::Warn("Failed to allocate shadow atlas region for light %d cascade %d", lightIndex, cascade);
-			lightShadow->castsShadows = false;
-			setupSuccess = false;
-			// Don't return false immediately, continue to see all failures
-		} else {
-			Log::Debug("Allocated atlas region at (%d, %d) size %dx%d for light %d cascade %d",
-			          shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
-			          shadowMap->size[0], shadowMap->size[1],
-			          lightIndex, cascade);
+        if (!AllocateAtlasRegion(&sd->shadowAtlas, shadowMap->size[0], shadowMap->size[1],
+                                 shadowMap->atlasOffset, sceneIndex, cascade)) {
+            Log::Warn("Failed to allocate shadow atlas region for scene light %d cascade %d", sceneIndex, cascade);
+            lightShadow->castsShadows = false;
+            setupSuccess = false;
+            // Don't return false immediately, continue to see all failures
+        } else {
+            Log::Debug("Allocated atlas region at (%d, %d) size %dx%d for scene light %d cascade %d",
+                      shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
+                      shadowMap->size[0], shadowMap->size[1],
+                      sceneIndex, cascade);
 
 			// Set up technique-specific parameters
 			switch (shadowMap->technique) {
@@ -383,13 +386,12 @@ bool ShadowMapManager::SetupLightShadows(refLight_t* light) {
 	}
 
     if (setupSuccess) {
-        // Record the scene light index for mapping purposes
-        lightShadow->sceneIndex = (&light[0] - &tr.refdef.lights[0]); // will be corrected by caller map
         sd->numShadowLights++;
-        Log::Debug("Successfully set up shadow for light %d, total shadow lights now: %d", lightIndex, sd->numShadowLights);
+        Log::Debug("Successfully set up shadow for scene light %d (slot %d), total shadow lights now: %d",
+                   sceneIndex, lightIndex, sd->numShadowLights);
         return true;
     } else {
-        Log::Debug("Failed to set up shadow for light %d", lightIndex);
+        Log::Debug("Failed to set up shadow for scene light %d (slot %d)", sceneIndex, lightIndex);
         return false;
     }
 }
@@ -432,7 +434,6 @@ void ShadowMapManager::SetupLightMatrix(refLight_t* light, shadowMap_t* shadowMa
 	// Set up light frustum from matrices
 	R_SetupFrustum2(shadowMap->lightFrustum, shadowMap->lightViewProjectionMatrix);
 
-	// Removed memset(&shadowMap->lightFrustum, 0, sizeof(shadowMap->lightFrustum));
 
 	Log::Debug("Set up light matrix for %s light at (%.1f, %.1f, %.1f)",
 	          (light->rlType == refLightType_t::RL_DIRECTIONAL) ? "directional" :
@@ -511,10 +512,8 @@ void ShadowMapManager::UpdateShadowMaps() {
             break; // no point continuing if even sun doesn't fit
         }
 
-        if (SetupLightShadows(light)) {
+        if (SetupLightShadows(light, i)) {
             Log::Debug("Successfully set up shadow for directional light %d", i);
-            // Map scene index to shadow slot (last appended)
-            sd->lightShadows[sd->numShadowLights - 1].sceneIndex = i;
             lightsProcessed++;
             usedTiles += requiredTiles;
         }
@@ -522,7 +521,7 @@ void ShadowMapManager::UpdateShadowMaps() {
         break;
     }
 
-    // Pass 1: process remaining lights in order, skipping any directional already handled.
+	// Pass 1: process remaining lights in order, skipping any directional already handled.
     for (int i = 0; i < sceneNumLights && sd->numShadowLights < maxShadowLights; i++) {
         refLight_t* light = &sceneLights[i];
         Log::Debug("Setting up shadow for scene light %d at (%.1f, %.1f, %.1f)",
@@ -544,9 +543,8 @@ void ShadowMapManager::UpdateShadowMaps() {
             break;
         }
 
-        if (SetupLightShadows(light)) {
+        if (SetupLightShadows(light, i)) {
             Log::Debug("Successfully set up shadow for scene light %d", i);
-            sd->lightShadows[sd->numShadowLights - 1].sceneIndex = i;
             lightsProcessed++;
             usedTiles += requiredTiles;
         } else {
@@ -557,7 +555,7 @@ void ShadowMapManager::UpdateShadowMaps() {
         }
     }
 
-    // After gathering, sort shadowed lights by their scene light index so
+	// After gathering, sort shadowed lights by their scene light index so
     // u_ShadowLightInfo[slot].x is strictly ascending (for GPU merge).
     if (sd->numShadowLights > 1) {
         std::sort(sd->lightShadows, sd->lightShadows + sd->numShadowLights,
@@ -596,6 +594,11 @@ void ShadowMapManager::RenderShadowMaps() {
 	// Check if shadow mapping is enabled
 	if (!IsShadowMappingEnabled()) {
 		Log::Debug("Shadow mapping is not enabled, returning early");
+		return;
+	}
+
+	if (sd->numShadowLights == 0) {
+		Log::Debug("No shadow lights to render");
 		return;
 	}
 
@@ -652,18 +655,6 @@ void ShadowMapManager::RenderShadowMaps() {
 	}
     Log::Debug("Shadow atlas FBO is complete");
 
-    // Always clear the atlas each frame so sampling never uses stale data
-    GL_Scissor( 0, 0, sd->shadowAtlas.size, sd->shadowAtlas.size );
-    GL_ClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-    GL_ClearDepth(1.0);
-    glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
-
-    if (sd->numShadowLights == 0) {
-        Log::Debug("No shadow lights to render after clearing atlas");
-        R_BindFBO(oldFBO);
-        return;
-    }
-
 	// One-time setup since we only support one technique at a time
 	shadowingMode_t technique = sd->lightShadows[0].cascades[0].technique;
 	Log::Debug("Using shadow technique: %d", static_cast<int>(technique));
@@ -716,15 +707,17 @@ void ShadowMapManager::RenderShadowMaps() {
     // Save/restore the current view to avoid leaking matrices/state to main view
     viewParms_t savedView = backEnd.viewParms;
 
+    // Legacy shadow path uses gathered drawSurfs; do not interact with material system here
+
     // Render shadow map for each shadow light
     int renderedLights = 0;
-	for (int lightIndex = 0; lightIndex < sd->numShadowLights; lightIndex++) {
-		lightShadowInfo_t* lightShadow = &sd->lightShadows[lightIndex];
+    for (int lightIndex = 0; lightIndex < sd->numShadowLights; lightIndex++) {
+        lightShadowInfo_t* lightShadow = &sd->lightShadows[lightIndex];
 
-		if (!lightShadow->castsShadows) {
-			Log::Debug("Light %d does not cast shadows, skipping", lightIndex);
-			continue;
-		}
+        if (!lightShadow->castsShadows) {
+            Log::Debug("Light %d does not cast shadows, skipping", lightIndex);
+            continue;
+        }
 
 		Log::Debug("Rendering light %d with %d cascades", lightIndex, lightShadow->numCascades);
 		renderedLights++;
@@ -739,7 +732,7 @@ void ShadowMapManager::RenderShadowMaps() {
             GL_Scissor(shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
                        shadowMap->size[0], shadowMap->size[1]);
 
-            // Load matrices from precomputed view parms
+            // Load matrices for this cascade from gathered view parms
             backEnd.viewParms = shadowMap->viewParms;
             GL_LoadProjectionMatrix( backEnd.viewParms.projectionMatrix );
             GL_LoadModelViewMatrix( backEnd.viewParms.world.modelViewMatrix );
@@ -750,9 +743,9 @@ void ShadowMapManager::RenderShadowMaps() {
 			          lightIndex, cascade, shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
 			          shadowMap->size[0], shadowMap->size[1]);
 
-            // Draw depth surfaces for the precomputed view using depth-only iterator
-            // Render only the SS_DEPTH range collected during gather
             {
+                // Draw depth surfaces for the precomputed view using depth-only iterator
+                // Render only the SS_DEPTH range collected during gather
                 // Based on RB_RenderDrawSurfaces but forcing Tess_StageIteratorShadowDepth
                 trRefEntity_t *entity = nullptr, *oldEntity = nullptr;
                 shader_t *shader = nullptr, *oldShader = nullptr;
@@ -821,6 +814,7 @@ void ShadowMapManager::RenderShadowMaps() {
 	}
 
     // Restore engine state and original view
+	R_BindNullFBO();
     glDisable(GL_POLYGON_OFFSET_FILL);
     GL_State(oldStateBits);
     GL_Viewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
@@ -850,6 +844,9 @@ void ShadowMapManager::BuildShadowViews() {
     // Build a gather-only view for each light cascade
     for (int lightIndex = 0; lightIndex < sd->numShadowLights; lightIndex++) {
         lightShadowInfo_t* lightShadow = &sd->lightShadows[lightIndex];
+		if (!lightShadow->castsShadows) {
+			continue;
+		}
 
         for (int cascade = 0; cascade < lightShadow->numCascades; cascade++) {
             shadowMap_t* shadowMap = &lightShadow->cascades[cascade];
@@ -868,25 +865,41 @@ void ShadowMapManager::BuildShadowViews() {
             inView.scissorHeight = inView.viewportHeight;
             inView.viewID = 0; // avoid interfering with material system view tracking
 
-            // Extract light origin/axes from inverse of view matrix
-            matrix_t invLightViewMatrix;
-            MatrixCopy(shadowMap->lightViewMatrix, invLightViewMatrix);
-            MatrixInverse(invLightViewMatrix);
-
-            // origin from last column
-            inView.orientation.origin[0] = invLightViewMatrix[12];
-            inView.orientation.origin[1] = invLightViewMatrix[13];
-            inView.orientation.origin[2] = invLightViewMatrix[14];
-            // axes from rotation part
-            for (int i = 0; i < 3; i++) {
-                inView.orientation.axis[0][i] = invLightViewMatrix[i * 4 + 0];
-                inView.orientation.axis[1][i] = invLightViewMatrix[i * 4 + 1];
-                inView.orientation.axis[2][i] = invLightViewMatrix[i * 4 + 2];
+            // Build orientation directly from the scene light, matching Setup*LightMatrix
+            refLight_t* light = &tr.refdef.lights[lightShadow->sceneIndex];
+            vec3_t fwd, up, right, left;
+            if (light->rlType == refLightType_t::RL_DIRECTIONAL) {
+                VectorCopy(light->projTarget, fwd); VectorNormalize(fwd);
+                PerpendicularVector(up, fwd);
+                CrossProduct(fwd, up, right); // right-handed
+                VectorNegate(right, left);     // FLU expects left axis
+                // Place origin far along -fwd like in SetupDirectionalLightMatrix
+                vec3_t origin;
+                VectorMA(vec3_origin, -2000.0f, fwd, origin);
+                VectorCopy(origin, inView.orientation.origin);
+                VectorCopy(origin, inView.orientation.viewOrigin);
+            } else if (light->rlType == refLightType_t::RL_PROJ) {
+                VectorCopy(light->origin, inView.orientation.origin);
+                VectorCopy(light->origin, inView.orientation.viewOrigin);
+                VectorCopy(light->projTarget, fwd); VectorNormalize(fwd);
+                PerpendicularVector(up, fwd);
+                CrossProduct(fwd, up, right);
+                VectorNegate(right, left);
+            } else { // RL_OMNI and others
+                VectorCopy(light->origin, inView.orientation.origin);
+                VectorCopy(light->origin, inView.orientation.viewOrigin);
+                // Arbitrary stable basis: look along -Z
+                VectorSet(fwd, 0.0f, 0.0f, -1.0f);
+                VectorSet(up, 0.0f, 1.0f, 0.0f);
+                CrossProduct(fwd, up, right);
+                VectorNegate(right, left);
             }
-
+            VectorCopy(fwd,  inView.orientation.axis[0]);
+            VectorCopy(left, inView.orientation.axis[1]);
+            VectorCopy(up,   inView.orientation.axis[2]);
             VectorCopy(inView.orientation.origin, inView.pvsOrigin);
             inView.portalLevel = 0;
-            inView.fovX = 90.0f; // unused for custom projection
+            inView.fovX = 90.0f;
             inView.fovY = 90.0f;
 
             // Gather using light projection
@@ -1046,15 +1059,13 @@ void ShadowMapManager::SetupDirectionalLightMatrix(refLight_t* light, shadowMap_
 	PerpendicularVector(up, lightDir);
 	CrossProduct(lightDir, up, right);
 
-	// Build view matrix
-	MatrixLookAtRH(viewMatrix, lightPos, lightDir, up);
+    // Build view matrix
+    MatrixLookAtRH(viewMatrix, lightPos, lightDir, up);
 
-	// Create orthographic projection matrix
-	// TODO: Calculate proper bounds based on scene geometry
-	float size = 2048.0f; // Larger size for better coverage
-	MatrixOrthogonalProjection(projectionMatrix, -size, size, -size, size, 1.0f, 4000.0f);
-
-	Log::Debug("Created orthographic projection with bounds: -/+ %.1f, near=1.0, far=4000.0", size);
+    // Fixed, stable orthographic projection for directional light
+    float size = 2048.0f;
+    MatrixOrthogonalProjection(projectionMatrix, -size, size, -size, size, 1.0f, 4000.0f);
+    Log::Debug("Directional ortho (fixed): -/+ %.1f, near=1.0, far=4000.0", size);
 
 	// Log matrix for debugging
 	Log::Debug("Directional light view matrix:");
@@ -1147,6 +1158,8 @@ void R_InitShadowMapping() {
 	// Initialize shadow data for all SMP frames
 	shadowMapManager.Init(&backEndData[0]->shadowData);
 	if (r_smp->integer) {
+		// TODO: This is probably buggy. We don't handle the shadow atlas well for SMP.
+		// For example, we seem to create a new shadow atlas and override the previous one.
 		shadowMapManager.Init(&backEndData[1]->shadowData);
 	}
 

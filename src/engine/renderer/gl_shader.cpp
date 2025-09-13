@@ -886,10 +886,11 @@ static bool IsUnusedPermutation( const char *compileMacros )
 		{
 			if ( !glConfig.physicalMapping ) return true;
 		}
-		else if ( strcmp( token, "USE_SHADOW_MAPPING" ) == 0 )
-		{
-			if ( !R_ShadowMappingEnabled() ) return true;
-		}
+        else if ( strcmp( token, "USE_SHADOW_MAPPING" ) == 0 )
+        {
+            // Do not skip shadow-mapping permutations during debugging; allow building
+            // the variant even if runtime toggles are off so we can force-enable it.
+        }
 		else if ( strcmp( token, "USE_REFLECTIVE_SPECULAR" ) == 0 )
 		{
 			/* FIXME: add to the following test: && r_physicalMapping->integer == 0
@@ -1657,8 +1658,6 @@ std::string GLShaderManager::ShaderPostProcess( GLShader *shader, const std::str
 		+ ") uniform materialsUBO {\n"
 		"	Material materials[" + std::to_string( count ) + "]; \n"
 		"};\n\n";
-	Log::Notice("Shader name: %s", shader->_name);
-	Log::Notice("%s", materialStruct + materialBlock + texDataBlock + materialDefines);
 	std::string shaderMain = RemoveUniformsFromShaderText( shaderText, shader->_materialSystemUniforms );
 
 	std::string newShaderText = "#define USE_MATERIAL_SYSTEM\n" + materialStruct + materialBlock + texDataBlock + materialDefines;

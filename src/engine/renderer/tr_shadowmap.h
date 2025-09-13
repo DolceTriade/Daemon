@@ -58,7 +58,8 @@ public:
 	void UpdateShadowMaps();
 
 	// Atlas management
-	bool AllocateAtlasRegion(shadowAtlas_t* atlas, int width, int height, vec2_t offset, int lightIndex, int cascade);
+    // Allocate a region in the atlas and record the owning scene light index for debugging
+    bool AllocateAtlasRegion(shadowAtlas_t* atlas, int width, int height, vec2_t offset, int sceneIndex, int cascade);
 
 	// Rendering
     void RenderShadowMaps();
@@ -67,7 +68,8 @@ public:
     void DebugRenderShadowAtlas();
 
 	// Light management
-	bool SetupLightShadows(refLight_t* light);
+    // Build per-light shadow data in the frontend buffer; sceneIndex is the index in refdef.lights
+    bool SetupLightShadows(refLight_t* light, int sceneIndex);
 
     // Utility
     bool IsShadowMappingEnabled() const;

@@ -832,12 +832,7 @@ void ProcessShaderLightMapping( const shaderStage_t* pStage ) {
 
     gl_lightMappingShader->SetPhysicalShading( pStage->enablePhysicalMapping );
 
-    // Enable shadow mapping permutation only for legacy entity path (non-BSP)
-    if ( !tess.bspSurface ) {
-        gl_lightMappingShader->SetShadowMapping( R_ShadowMappingEnabled() );
-    } else {
-        gl_lightMappingShader->SetShadowMapping( false );
-    }
+    gl_lightMappingShader->SetShadowMapping( R_ShadowMappingEnabled() );
 }
 
 void ProcessShaderReflection( const shaderStage_t* pStage ) {
@@ -1244,13 +1239,14 @@ void Render_lightMapping( shaderStage_t *pStage )
 		);
 	}
 
-	// Upload shadow uniforms for the legacy path after binding program (entities only)
-	if ( R_ShadowMappingEnabled() && !tess.bspSurface )
-	{
-		// Shadow params
-		vec4_t shadowParams;
-		shadowParams[0] = r_shadowBias.Get();           // bias
-		shadowParams[1] = r_shadowESMExponent.Get();    // ESM exponent
+    // Upload shadow uniforms after binding program (apply to both BSP and entities)
+    // Force-enable during debugging regardless of runtime toggles
+    if ( true )
+    {
+        // Shadow params
+        vec4_t shadowParams;
+        shadowParams[0] = r_shadowBias.Get();           // bias
+        shadowParams[1] = r_shadowESMExponent.Get();    // ESM exponent
 		shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
 		shadowParams[3] = 0.0f;                         // unused
 		gl_lightMappingShader->SetUniform_ShadowParams( shadowParams );
@@ -1273,12 +1269,12 @@ void Render_lightMapping( shaderStage_t *pStage )
 		// Technique
 		gl_lightMappingShader->SetUniform_ShadowTechnique( r_shadows.Get() );
 
-		// Bind atlas
-		image_t* shadowAtlas = shadowMapManager.GetShadowAtlas( &backEndData[ backEnd.smpFrame ]->shadowData.shadowAtlas );
-		if ( shadowAtlas ) {
-			gl_lightMappingShader->SetUniform_ShadowAtlasBindless( GL_BindToTMU( BIND_SHADOWATLAS, shadowAtlas ) );
-		}
-	}
+        // Bind atlas
+        image_t* shadowAtlas = shadowMapManager.GetShadowAtlas( &backEndData[ backEnd.smpFrame ]->shadowData.shadowAtlas );
+        if ( shadowAtlas ) {
+            gl_lightMappingShader->SetUniform_ShadowAtlasBindless( GL_BindToTMU( BIND_SHADOWATLAS, shadowAtlas ) );
+        }
+    }
 
 	if ( r_profilerRenderSubGroups.Get() && !( pStage->stateBits & GLS_DEPTHMASK_TRUE ) ) {
 		const uint mode = GetShaderProfilerRenderSubGroupsMode( stateBits );
