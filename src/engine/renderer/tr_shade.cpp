@@ -343,7 +343,7 @@ static void GLSL_InitGPUShadersOrError()
 
 	gl_cameraEffectsShader->MarkProgramForBuilding( 0 );
 
-	if ( glConfig.bloom )
+	if ( glConfig.bloom || R_ShadowMappingEnabled() )
 	{
 		// gaussian blur
 		gl_shaderManager.LoadShader( gl_blurShader );
@@ -1246,10 +1246,10 @@ void Render_lightMapping( shaderStage_t *pStage )
         // Shadow params
         vec4_t shadowParams;
         shadowParams[0] = r_shadowBias.Get();           // bias
-        shadowParams[1] = r_shadowESMExponent.Get();    // ESM exponent
-		shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
-		shadowParams[3] = 0.0f;                         // unused
-		gl_lightMappingShader->SetUniform_ShadowParams( shadowParams );
+        shadowParams[1] = R_ComputeESMExponent( static_cast<shadowingMode_t>( r_shadows.Get() ), r_shadowESMExponent.Get() );
+        	shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
+        	shadowParams[3] = 0.0f;                         // unused
+        gl_lightMappingShader->SetUniform_ShadowParams( shadowParams );
 
 		// Matrices
 		matrix_t shadowMatrices[16];
@@ -2112,18 +2112,18 @@ void Tess_StageIteratorShadowDepth()
 		gl_shadowDepthShader->SetVertexAnimation( tess.vboVertexAnimation );
 		gl_shadowDepthShader->BindProgram( 0 );
 
-		// Set uniforms
-		gl_shadowDepthShader->SetUniform_ModelMatrix( backEnd.orientation.transformMatrix );
-		gl_shadowDepthShader->SetUniform_ModelViewProjectionMatrix(
-			glState.modelViewProjectionMatrix[ glState.stackIndex ] );
-		gl_shadowDepthShader->SetUniform_ShadowTechnique( r_shadows.Get() );
-		// bind u_ShadowParams
-		vec4_t shadowParams;
-		shadowParams[0] = r_shadowBias.Get();           // bias
-		shadowParams[1] = r_shadowESMExponent.Get();    // ESM exponent
-		shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
-		shadowParams[3] = 0.0f;                         // unused
-		gl_shadowDepthShader->SetUniform_ShadowParams( shadowParams );
+        // Set uniforms
+        gl_shadowDepthShader->SetUniform_ModelMatrix( backEnd.orientation.transformMatrix );
+        gl_shadowDepthShader->SetUniform_ModelViewProjectionMatrix(
+            glState.modelViewProjectionMatrix[ glState.stackIndex ] );
+        gl_shadowDepthShader->SetUniform_ShadowTechnique( r_shadows.Get() );
+        // bind u_ShadowParams
+        vec4_t shadowParams;
+        shadowParams[0] = r_shadowBias.Get();           // bias
+        shadowParams[1] = R_ComputeESMExponent( static_cast<shadowingMode_t>( r_shadows.Get() ), r_shadowESMExponent.Get() );
+        shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
+        shadowParams[3] = 0.0f;                         // unused
+        gl_shadowDepthShader->SetUniform_ShadowParams( shadowParams );
 
 
 		// Set vertex pointers

@@ -2442,6 +2442,10 @@ struct shadowAtlas_t {
     image_t* depthImage;      // Depth buffer
     FBO_t* fbo;
 
+    // Temporary blur target for VSM/EVSM post-processing
+    image_t* tempImage;
+    FBO_t* tempFBO;
+
     // Atlas properties
     int size;
 

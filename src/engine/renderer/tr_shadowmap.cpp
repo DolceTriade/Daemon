@@ -26,10 +26,24 @@ along with Daemon Source Code.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "tr_local.h" // Now includes all shadow mapping structs
 #include "Material.h"
+#include "gl_shader.h"
 #include <algorithm>
 
 // Global shadow map manager instance
 ShadowMapManager shadowMapManager; // Still a singleton, but operates on passed shadowData_t
+
+// Map a 0..1 user scale into a technique-safe exponent to avoid overflow/clamping
+float R_ComputeESMExponent( shadowingMode_t technique, float scale ) {
+    if (scale < 0.0f) scale = 0.0f; else if (scale > 1.0f) scale = 1.0f;
+    float maxK = 0.0f;
+    switch (technique) {
+        case shadowingMode_t::SHADOWING_ESM16:  maxK = 11.0f; break; // ~ln(max float16)
+        case shadowingMode_t::SHADOWING_ESM32:  maxK = 80.0f; break; // conservative under ln(max float32)
+        case shadowingMode_t::SHADOWING_EVSM32: maxK = 80.0f; break;
+        default: maxK = 0.0f; break;
+    }
+    return scale * maxK;
+}
 
 //
 // ShadowMapManager Implementation
@@ -165,15 +179,26 @@ void ShadowMapManager::InitAtlas(shadowAtlas_t* atlas) {
     imageParams.filterType = filterType_t::FT_LINEAR;
     imageParams.wrapType = wrapTypeEnum_t::WT_CLAMP;
 
-	atlas->colorImage = R_CreateImage(va("*shadowAtlas_%d", atlasSize), nullptr, atlasSize, atlasSize, 1, imageParams);
+    atlas->colorImage = R_CreateImage(va("*shadowAtlas_%d", atlasSize), nullptr, atlasSize, atlasSize, 1, imageParams);
 
-	// Create depth buffer for all techniques
-	imageParams_t depthParams = {};
-	depthParams.bits = IF_DEPTH24 | IF_NOPICMIP;
-	depthParams.filterType = filterType_t::FT_NEAREST;
-	depthParams.wrapType = wrapTypeEnum_t::WT_ONE_CLAMP;
+    // Create depth buffer for all techniques
+    imageParams_t depthParams = {};
+    depthParams.bits = IF_DEPTH24 | IF_NOPICMIP;
+    depthParams.filterType = filterType_t::FT_NEAREST;
+    depthParams.wrapType = wrapTypeEnum_t::WT_ONE_CLAMP;
 
-	atlas->depthImage = R_CreateImage(va("*shadowAtlasDepth_%d", atlasSize), nullptr, atlasSize, atlasSize, 1, depthParams);
+    atlas->depthImage = R_CreateImage(va("*shadowAtlasDepth_%d", atlasSize), nullptr, atlasSize, atlasSize, 1, depthParams);
+
+    // Create temporary color texture/FBO for blur passes (same format as colorImage)
+    atlas->tempImage = R_CreateImage(va("*shadowAtlasTemp_%d", atlasSize), nullptr, atlasSize, atlasSize, 1, imageParams);
+    atlas->tempFBO = R_CreateFBO(va("*shadowAtlasTemp_%d", atlasSize), atlasSize, atlasSize);
+    R_BindFBO(atlas->tempFBO);
+    if (atlas->tempImage) {
+        R_AttachFBOTexture2D(GL_TEXTURE_2D, atlas->tempImage->texnum, 0);
+    }
+    if (!R_CheckFBO(atlas->tempFBO)) {
+        Log::Warn("Shadow atlas temp FBO is not complete");
+    }
 
 	// Create FBO
 	CreateShadowMapFBO(atlas);
@@ -182,10 +207,12 @@ void ShadowMapManager::InitAtlas(shadowAtlas_t* atlas) {
 }
 
 void ShadowMapManager::ShutdownAtlas(shadowAtlas_t* atlas) {
-	// FBOs are cleaned up by R_ShutdownFBOs(), images by image manager
-	atlas->fbo = nullptr;
-	atlas->colorImage = nullptr;
-	atlas->depthImage = nullptr;
+    // FBOs are cleaned up by R_ShutdownFBOs(), images by image manager
+    atlas->fbo = nullptr;
+    atlas->colorImage = nullptr;
+    atlas->depthImage = nullptr;
+    atlas->tempFBO = nullptr;
+    atlas->tempImage = nullptr;
 }
 
 void ShadowMapManager::CreateShadowMapFBO(shadowAtlas_t* atlas) {
@@ -620,23 +647,6 @@ void ShadowMapManager::RenderShadowMaps() {
 		return;
 	}
 
-	Log::Debug("Atlas textures: color=%p (texnum=%d), depth=%p (texnum=%d)",
-	          sd->shadowAtlas.colorImage, sd->shadowAtlas.colorImage->texnum,
-	          sd->shadowAtlas.depthImage, sd->shadowAtlas.depthImage->texnum);
-
-	// Additional debug info
-	Log::Debug("Shadow atlas size: %d", sd->shadowAtlas.size);
-	for (int i = 0; i < sd->numShadowLights && i < MAX_SHADOW_LIGHTS; i++) {
-		Log::Debug("Light %d: numCascades=%d", i, sd->lightShadows[i].numCascades);
-		for (int j = 0; j < sd->lightShadows[i].numCascades && j < MAX_SHADOW_CASCADES; j++) {
-			Log::Debug("  Cascade %d: offset=(%d,%d), size=(%d,%d)", j,
-			          static_cast<int>(sd->lightShadows[i].cascades[j].atlasOffset[0]),
-			          static_cast<int>(sd->lightShadows[i].cascades[j].atlasOffset[1]),
-			          static_cast<int>(sd->lightShadows[i].cascades[j].size[0]),
-			          static_cast<int>(sd->lightShadows[i].cascades[j].size[1]));
-		}
-	}
-
 	// Save current engine state
 	uint32_t oldStateBits = glState.glStateBits;
 	int prevViewport[4] = {glState.viewportX, glState.viewportY, glState.viewportWidth, glState.viewportHeight};
@@ -664,15 +674,12 @@ void ShadowMapManager::RenderShadowMaps() {
 
 	// Enable depth testing (clear GLS_DEPTHTEST_DISABLE bit)
 	// Set depth function to LESS
-	shadowState |= GLS_DEPTHFUNC_LESS;
-
-	// Enable depth mask
-	// This is default, so we don't need to set a specific bit
+	shadowState |= GLS_DEPTHMASK_TRUE | GLS_DEPTHFUNC_LESS;
 
 	// Set color mask based on technique
 	if (technique == shadowingMode_t::SHADOWING_ESM16 || technique == shadowingMode_t::SHADOWING_ESM32) {
-		// ESM needs color output for exponential depth - disable blue and alpha masks
-		shadowState |= GLS_BLUEMASK_FALSE | GLS_ALPHAMASK_FALSE;
+		// ESM needs color output for exponential depth - disable green, blue, and alpha masks
+		shadowState |= GLS_GREENMASK_FALSE | GLS_BLUEMASK_FALSE | GLS_ALPHAMASK_FALSE;
 		Log::Debug("Setting up for ESM technique with RG color mask");
 	} else if (technique == shadowingMode_t::SHADOWING_VSM16 || technique == shadowingMode_t::SHADOWING_VSM32 ||
 	           technique == shadowingMode_t::SHADOWING_EVSM32) {
@@ -699,8 +706,8 @@ void ShadowMapManager::RenderShadowMaps() {
     // For depth-only techniques, we want depth=1.0 (farthest)
     // For ESM/VSM techniques, we want color=1.0 (maximum depth value)
     GL_ClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-    GL_ClearDepth(1.0);
-    glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+    GL_ClearDepth(1.0f);
+    glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT );
 
 	Log::Debug("Cleared shadow atlas with white color (1,1,1,1) and depth=1.0 - this should happen EVERY frame");
 
@@ -811,10 +818,67 @@ void ShadowMapManager::RenderShadowMaps() {
 			          lightIndex, cascade, shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
 			          shadowMap->size[0], shadowMap->size[1]);
 		}
-	}
+    }
+
+    // Optional VSM/EVSM blur pass per tile
+    if (currentTechnique == shadowingMode_t::SHADOWING_VSM16 ||
+        currentTechnique == shadowingMode_t::SHADOWING_VSM32 ||
+        currentTechnique == shadowingMode_t::SHADOWING_EVSM32) {
+        float radius = r_shadowVSMBlur.Get();
+        if (radius > 0.0f && sd->shadowAtlas.colorImage && sd->shadowAtlas.tempImage && gl_blurShader) {
+            // Set common state
+            GL_State(GLS_DEPTHTEST_DISABLE);
+            GL_Cull(cullType_t::CT_TWO_SIDED);
+
+            // Ortho over atlas space
+            matrix_t ortho;
+            MatrixOrthogonalProjection(ortho, 0, sd->shadowAtlas.size, 0, sd->shadowAtlas.size, -99999, 99999);
+
+            vec2_t texScale;
+            texScale[0] = 1.0f / sd->shadowAtlas.size;
+            texScale[1] = 1.0f / sd->shadowAtlas.size;
+
+            gl_blurShader->BindProgram(0);
+            gl_blurShader->SetUniform_DeformMagnitude(radius);
+            gl_blurShader->SetUniform_TexScale(texScale);
+
+            // Horizontal then vertical for each allocated region
+            for (int i = 0; i < sd->shadowAtlas.allocatedRegions; ++i) {
+                const atlasRegion_t& region = sd->shadowAtlas.regions[i];
+                if (!region.allocated) continue;
+
+                int x = region.offset[0];
+                int y = region.offset[1];
+                int w = region.size[0];
+                int h = region.size[1];
+
+                // Horizontal pass: src = atlas.colorImage, dst = tempFBO
+                gl_blurShader->SetUniform_Horizontal(true);
+                gl_blurShader->SetUniform_ColorMapBindless(GL_BindToTMU(0, sd->shadowAtlas.colorImage));
+
+                R_BindFBO(sd->shadowAtlas.tempFBO);
+                GL_LoadProjectionMatrix(ortho);
+                GL_Viewport(x, y, w, h);
+                GL_Scissor(x, y, w, h);
+                glClear(GL_COLOR_BUFFER_BIT);
+                Tess_InstantScreenSpaceQuad();
+
+                // Vertical pass: src = tempImage, dst = atlas.fbo
+                gl_blurShader->SetUniform_Horizontal(false);
+                gl_blurShader->SetUniform_ColorMapBindless(GL_BindToTMU(0, sd->shadowAtlas.tempImage));
+
+                R_BindFBO(sd->shadowAtlas.fbo);
+                GL_LoadProjectionMatrix(ortho);
+                GL_Viewport(x, y, w, h);
+                GL_Scissor(x, y, w, h);
+                glClear(GL_COLOR_BUFFER_BIT);
+                Tess_InstantScreenSpaceQuad();
+            }
+        }
+    }
 
     // Restore engine state and original view
-	R_BindNullFBO();
+    R_BindNullFBO();
     glDisable(GL_POLYGON_OFFSET_FILL);
     GL_State(oldStateBits);
     GL_Viewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);

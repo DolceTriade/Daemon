@@ -126,4 +126,7 @@ void R_EndShadowMapping();
 // Shadow light management
 void R_AddShadowLight( const vec3_t org, float radius, float intensity, float r, float g, float b, qhandle_t hShader, int flags );
 
+// Utility: map a 0..1 exponent scale to a technique-safe ESM/EVSM exponent
+float R_ComputeESMExponent( shadowingMode_t technique, float scale );
+
 #endif // TR_SHADOWMAP_H
