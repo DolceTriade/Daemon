@@ -1012,31 +1012,31 @@ void ShadowMapManager::GetShadowMatrices(matrix_t* matrices, int maxMatrices) co
 	}
 
 	// Fill in actual shadow matrices
-	int matrixIndex = 0;
+	int maxWrittenSlot = -1;
 	for (int lightIndex = 0; lightIndex < sd->numShadowLights && lightIndex < MAX_SHADOW_LIGHTS; lightIndex++) {
 		const lightShadowInfo_t* lightShadow = &sd->lightShadows[lightIndex];
 
 		for (int cascade = 0; cascade < lightShadow->numCascades && cascade < MAX_SHADOW_CASCADES; cascade++) {
-			if (matrixIndex >= maxMatrices) {
-				Log::Warn("Exceeded maximum shadow matrices: %d", maxMatrices);
-				return;
+			const int slot = lightIndex * MAX_SHADOW_CASCADES + cascade;
+			if (slot >= maxMatrices) {
+				Log::Warn("Shadow matrix slot %d (light %d cascade %d) exceeds uniform capacity %d", slot, lightIndex, cascade, maxMatrices);
+				continue;
 			}
 
 			const shadowMap_t* shadowMap = &lightShadow->cascades[cascade];
-			MatrixCopy(shadowMap->lightViewProjectionMatrix, matrices[matrixIndex]);
+			MatrixCopy(shadowMap->lightViewProjectionMatrix, matrices[slot]);
+			maxWrittenSlot = std::max(maxWrittenSlot, slot);
 
 			// Log matrix for debugging
-			Log::Debug("Shadow matrix[%d] for light %d cascade %d:", matrixIndex, lightIndex, cascade);
-			Log::Debug("  [%f, %f, %f, %f]", matrices[matrixIndex][0], matrices[matrixIndex][4], matrices[matrixIndex][8], matrices[matrixIndex][12]);
-			Log::Debug("  [%f, %f, %f, %f]", matrices[matrixIndex][1], matrices[matrixIndex][5], matrices[matrixIndex][9], matrices[matrixIndex][13]);
-			Log::Debug("  [%f, %f, %f, %f]", matrices[matrixIndex][2], matrices[matrixIndex][6], matrices[matrixIndex][10], matrices[matrixIndex][14]);
-			Log::Debug("  [%f, %f, %f, %f]", matrices[matrixIndex][3], matrices[matrixIndex][7], matrices[matrixIndex][11], matrices[matrixIndex][15]);
-
-			matrixIndex++;
+			Log::Debug("Shadow matrix slot %d (light %d cascade %d):", slot, lightIndex, cascade);
+			Log::Debug("  [%f, %f, %f, %f]", matrices[slot][0], matrices[slot][4], matrices[slot][8], matrices[slot][12]);
+			Log::Debug("  [%f, %f, %f, %f]", matrices[slot][1], matrices[slot][5], matrices[slot][9], matrices[slot][13]);
+			Log::Debug("  [%f, %f, %f, %f]", matrices[slot][2], matrices[slot][6], matrices[slot][10], matrices[slot][14]);
+			Log::Debug("  [%f, %f, %f, %f]", matrices[slot][3], matrices[slot][7], matrices[slot][11], matrices[slot][15]);
 		}
 	}
 
-	Log::Debug("Copied %d shadow matrices", matrixIndex);
+	Log::Debug("Copied shadow matrices up to slot %d", maxWrittenSlot);
 }
 
 void ShadowMapManager::GetShadowLightInfo(vec4_t* lightInfo, int maxLights) const {
