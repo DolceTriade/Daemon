@@ -18,19 +18,29 @@ This file is part of the Daemon BSD Source Code (Daemon Source Code).
 // Shadow mapping uniforms (only declared when shadow mapping is enabled)
 #if defined(USE_SHADOW_MAPPING)
 
+#ifndef MAX_SHADOW_LIGHTS
+#define MAX_SHADOW_LIGHTS 8
+#endif
+#define SHADOW_SLICES_PER_LIGHT 6
+#define MAX_SHADOW_SLICES (MAX_SHADOW_LIGHTS * SHADOW_SLICES_PER_LIGHT)
+#define POINT_SHADOW_FACE_COUNT 6
+
 // Shadow atlas and parameters
 uniform sampler2D u_ShadowAtlas;
 uniform vec4 u_ShadowParams; // x: bias, y: ESM exponent, z: PCF filter size, w: unused
 
-// Shadow matrices (up to 4 cascades per light, up to 4 lights)
-uniform mat4 u_ShadowMatrices[16]; // lightIndex * 4 + cascadeIndex
+// Shadow matrices (one 4x4 transform per light slice)
+uniform mat4 u_ShadowMatrices[MAX_SHADOW_SLICES]; // lightIndex * SHADOW_SLICES_PER_LIGHT + sliceIndex
+
+// Per-slice atlas transforms (offset.xy, scale.xy)
+uniform vec4 u_ShadowTileInfo[MAX_SHADOW_SLICES];
 
 // Cascade splits for directional lights
-uniform vec4 u_CascadeSplits[4]; // Per light cascade splits
+uniform vec4 u_CascadeSplits[MAX_SHADOW_LIGHTS]; // Per light cascade splits
 
 // Light shadow info per shadow slot (vec4 for portability)
-// x: lightIndex in u_Lights (scene/UBO index), y: numCascades, z: atlasOffset.x, w: atlasOffset.y
-uniform vec4 u_ShadowLightInfo[4];
+// x: lightIndex in u_Lights (scene/UBO index), y: numSlices, z: baseSliceIndex, w: active flag
+uniform vec4 u_ShadowLightInfo[MAX_SHADOW_LIGHTS];
 
 // Current technique being used
 uniform int u_ShadowTechnique;
@@ -188,13 +198,28 @@ int SelectShadowCascade(float viewDepth, int lightIndex) {
 }
 
 // Main shadow calculation function
-float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lightIndex) {
-    if (lightIndex < 0 || lightIndex >= 4) {
+int SelectOmniShadowFace(vec3 L) {
+    vec3 absDir = abs(L);
+
+    int faceIndex = 0;
+    if (absDir.x >= absDir.y && absDir.x >= absDir.z) {
+        faceIndex = (L.x >= 0.0) ? 0 : 1;
+    } else if (absDir.y >= absDir.x && absDir.y >= absDir.z) {
+        faceIndex = (L.y >= 0.0) ? 2 : 3;
+    } else {
+        faceIndex = (L.z >= 0.0) ? 4 : 5;
+    }
+    return faceIndex;
+}
+
+float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lightIndex, float lightType, vec3 lightPosition) {
+    if (lightIndex < 0 || lightIndex >= MAX_SHADOW_LIGHTS) {
         return 1.0; // No shadow
     }
 
     vec4 lightInfo = u_ShadowLightInfo[lightIndex];
-    int numCascades = int(lightInfo.y);
+    int numSlices = int(lightInfo.y + 0.5);
+    int baseSlice = int(lightInfo.z + 0.5);
 
     // Early out if shadow mapping is disabled at runtime
     if (u_ShadowTechnique <= 1) {
@@ -203,11 +228,34 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
 
 	// Calculate view-space depth for cascade selection
 	float viewDepth = length(worldPos - viewOrigin);
-	int cascadeIndex = (numCascades > 1) ? SelectShadowCascade(viewDepth, lightIndex) : 0;
+	int sliceIndex = 0;
 
-	// Get shadow matrix
-	int matrixIndex = lightIndex * 4 + cascadeIndex;
+	if (numSlices <= 0) {
+		return 1.0;
+	}
+
+	if (lightType == 0.0 && numSlices == POINT_SHADOW_FACE_COUNT) {
+		vec3 toFragment = worldPos - lightPosition;
+		if (length(toFragment) < 1e-4) {
+			sliceIndex = 0;
+		} else {
+			sliceIndex = SelectOmniShadowFace(toFragment);
+		}
+	} else if (numSlices > 1) {
+		int cascadeIndex = SelectShadowCascade(viewDepth, lightIndex);
+		sliceIndex = clamp(cascadeIndex, 0, numSlices - 1);
+	}
+
+	int matrixIndex = baseSlice + sliceIndex;
+	if (matrixIndex < 0 || matrixIndex >= MAX_SHADOW_SLICES) {
+		return 1.0;
+	}
+
 	mat4 shadowMatrix = u_ShadowMatrices[matrixIndex];
+    vec4 tile = u_ShadowTileInfo[matrixIndex];
+    if (tile.z <= 0.0 || tile.w <= 0.0) {
+        return 1.0;
+    }
 
 	// Transform world position to light space
 	vec4 lightSpacePos = shadowMatrix * vec4(worldPos, 1.0);
@@ -227,9 +275,9 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
 		return 1.0; // Outside shadow map, fully lit
 	}
 
-	// Offset into atlas based on light's atlas region
-	vec2 atlasOffset = vec2(lightInfo.z, lightInfo.w) / vec2(r_shadowAtlasSize);
-	vec2 atlasScale = vec2(r_shadowMapSize) / vec2(r_shadowAtlasSize);
+	// Offset into atlas based on slice transform
+	vec2 atlasOffset = tile.xy;
+	vec2 atlasScale = tile.zw;
 	shadowCoord.xy = shadowCoord.xy * atlasScale + atlasOffset;
 
 	// Sample shadow map with PCF

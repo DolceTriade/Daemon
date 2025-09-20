@@ -194,7 +194,7 @@ static inline void halfToFloat( const f16vec4_t in, vec4_t out )
 #define DRAWSURF_MASK      ( MAX_DRAWSURFS - 1 )
 
 #define MAX_SHADOW_LIGHTS 8
-#define MAX_SHADOW_CASCADES 4
+#define MAX_SHADOW_CASCADES 6 // per-light slice capacity (4 directional cascades or 6 cube faces)
 #define MAX_SHADOW_REGIONS MAX_SHADOW_LIGHTS * MAX_SHADOW_CASCADES
 
 // 16x16 pixels per tile
@@ -2406,6 +2406,7 @@ struct shadowMap_t {
     vec2_t size;
     int cascadeIndex;
     int lightIndex;
+    int cubeFace; // 0..5 for omni lights, -1 otherwise
 
     // Technique-specific parameters
     union {

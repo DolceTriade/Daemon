@@ -29,6 +29,35 @@ along with Daemon Source Code.  If not, see <http://www.gnu.org/licenses/>.
 #include "gl_shader.h"
 #include <algorithm>
 
+static constexpr int kPointLightFaceCount = 6;
+static void GetCubeFaceBasis(int face, vec3_t forward, vec3_t up) {
+    static const vec3_t forwardDirs[kPointLightFaceCount] = {
+        {  1.0f,  0.0f,  0.0f }, // +X
+        { -1.0f,  0.0f,  0.0f }, // -X
+        {  0.0f,  1.0f,  0.0f }, // +Y
+        {  0.0f, -1.0f,  0.0f }, // -Y
+        {  0.0f,  0.0f,  1.0f }, // +Z
+        {  0.0f,  0.0f, -1.0f }  // -Z
+    };
+    static const vec3_t upDirs[kPointLightFaceCount] = {
+        { 0.0f, -1.0f,  0.0f }, // +X
+        { 0.0f, -1.0f,  0.0f }, // -X
+        { 0.0f,  0.0f,  1.0f }, // +Y
+        { 0.0f,  0.0f, -1.0f }, // -Y
+        { 0.0f, -1.0f,  0.0f }, // +Z
+        { 0.0f, -1.0f,  0.0f }  // -Z
+    };
+
+    if (face < 0 || face >= kPointLightFaceCount) {
+        VectorSet(forward, 0.0f, 0.0f, -1.0f);
+        VectorSet(up, 0.0f, 1.0f, 0.0f);
+        return;
+    }
+
+    VectorCopy(forwardDirs[face], forward);
+    VectorCopy(upDirs[face], up);
+}
+
 // Global shadow map manager instance
 ShadowMapManager shadowMapManager; // Still a singleton, but operates on passed shadowData_t
 
@@ -339,8 +368,11 @@ bool ShadowMapManager::SetupLightShadows(refLight_t* light, int sceneIndex) {
 		Log::Debug("Directional light detected, using %d cascades. Direction: (%.2f, %.2f, %.2f)",
 		          lightShadow->numCascades,
 		          light->projTarget[0], light->projTarget[1], light->projTarget[2]);
+	} else if (light->rlType == refLightType_t::RL_OMNI) {
+		lightShadow->numCascades = kPointLightFaceCount;
+		Log::Debug("Omni light detected, using %d cube faces", lightShadow->numCascades);
 	} else {
-		lightShadow->numCascades = 1; // Point/spot lights use single shadow map
+		lightShadow->numCascades = 1; // Spot lights use single shadow map
 		Log::Debug("Non-directional light (%d), using 1 cascade", static_cast<int>(light->rlType));
 	}
 
@@ -361,6 +393,7 @@ bool ShadowMapManager::SetupLightShadows(refLight_t* light, int sceneIndex) {
 		shadowMap->size[1] = r_shadowMapSize.Get();
 		shadowMap->cascadeIndex = cascade;
 		shadowMap->lightIndex = lightIndex;
+		shadowMap->cubeFace = (light->rlType == refLightType_t::RL_OMNI) ? cascade : -1;
 
 		Log::Debug("Setting up cascade %d: technique=%d, size=%dx%d",
 		          cascade, static_cast<int>(shadowMap->technique),
@@ -560,7 +593,14 @@ void ShadowMapManager::UpdateShadowMaps() {
         }
 
         // Tiles required for this light
-        int requiredTiles = (light->rlType == refLightType_t::RL_DIRECTIONAL) ? r_shadowCascades.Get() : 1;
+		int requiredTiles;
+		if (light->rlType == refLightType_t::RL_DIRECTIONAL) {
+			requiredTiles = r_shadowCascades.Get();
+		} else if (light->rlType == refLightType_t::RL_OMNI) {
+			requiredTiles = kPointLightFaceCount;
+		} else {
+			requiredTiles = 1;
+		}
         if (usedTiles + requiredTiles > atlasCapacity) {
             // Maintain 1:1 index alignment with tiled/UBO light indices: only shadow
             // the first contiguous block of scene lights. If we can't fit this one,
@@ -949,15 +989,14 @@ void ShadowMapManager::BuildShadowViews() {
                 PerpendicularVector(up, fwd);
                 CrossProduct(fwd, up, right);
                 VectorNegate(right, left);
-            } else { // RL_OMNI and others
-                VectorCopy(light->origin, inView.orientation.origin);
-                VectorCopy(light->origin, inView.orientation.viewOrigin);
-                // Arbitrary stable basis: look along -Z
-                VectorSet(fwd, 0.0f, 0.0f, -1.0f);
-                VectorSet(up, 0.0f, 1.0f, 0.0f);
-                CrossProduct(fwd, up, right);
-                VectorNegate(right, left);
-            }
+		} else { // RL_OMNI and others
+			VectorCopy(light->origin, inView.orientation.origin);
+			VectorCopy(light->origin, inView.orientation.viewOrigin);
+			GetCubeFaceBasis(shadowMap->cubeFace, fwd, up);
+			CrossProduct(fwd, up, right);
+			VectorNormalize(right);
+			VectorNegate(right, left);
+		}
             VectorCopy(fwd,  inView.orientation.axis[0]);
             VectorCopy(left, inView.orientation.axis[1]);
             VectorCopy(up,   inView.orientation.axis[2]);
@@ -1052,15 +1091,14 @@ void ShadowMapManager::GetShadowLightInfo(vec4_t* lightInfo, int maxLights) cons
 		const lightShadowInfo_t* lightShadow = &sd->lightShadows[lightIndex];
 
 		lightInfo[lightIndex][0] = static_cast<float>(lightShadow->sceneIndex); // sceneIndex
-		lightInfo[lightIndex][1] = static_cast<float>(lightShadow->numCascades); // numCascades
-		lightInfo[lightIndex][2] = static_cast<float>(lightShadow->cascades[0].atlasOffset[0]); // atlasOffset.x
-		lightInfo[lightIndex][3] = static_cast<float>(lightShadow->cascades[0].atlasOffset[1]); // atlasOffset.y
+		lightInfo[lightIndex][1] = static_cast<float>(lightShadow->numCascades); // slice count
+		lightInfo[lightIndex][2] = static_cast<float>(lightIndex * MAX_SHADOW_CASCADES); // base slice
+		lightInfo[lightIndex][3] = lightShadow->castsShadows ? 1.0f : 0.0f; // enabled flag
 
-    Log::Debug("Light %d info: lightIndex=%d, cascades=%d, offset=(%d,%d)",
-              lightIndex, static_cast<int>(lightInfo[lightIndex][0]),
-              static_cast<int>(lightInfo[lightIndex][1]),
-              static_cast<int>(lightInfo[lightIndex][2]),
-              static_cast<int>(lightInfo[lightIndex][3]));
+		Log::Debug("Light %d info: sceneIndex=%d, slices=%d, baseSlice=%d", lightIndex,
+		          static_cast<int>(lightInfo[lightIndex][0]),
+		          static_cast<int>(lightInfo[lightIndex][1]),
+		          static_cast<int>(lightInfo[lightIndex][2]));
 	}
 
 	// Log all light info for debugging
@@ -1084,6 +1122,40 @@ void ShadowMapManager::GetCascadeSplits(vec4_t* splits, int maxLights) const {
 		// For directional lights, we would set proper cascade splits
 		// For now, using reasonable defaults
 		Vector4Set(splits[lightIndex], 10.0f, 50.0f, 200.0f, 1000.0f);
+	}
+}
+
+void ShadowMapManager::GetShadowTileInfo(vec4_t* tileInfo, int maxSlices) const {
+	shadowData_t *sd = &backEndData[backEnd.smpFrame]->shadowData;
+
+	for (int i = 0; i < maxSlices; i++) {
+		Vector4Set(tileInfo[i], 0.0f, 0.0f, 0.0f, 0.0f);
+	}
+
+	int atlasSize = std::max(1, sd->shadowAtlas.size);
+
+	for (int lightIndex = 0; lightIndex < sd->numShadowLights && lightIndex < MAX_SHADOW_LIGHTS; lightIndex++) {
+		const lightShadowInfo_t* lightShadow = &sd->lightShadows[lightIndex];
+		if (!lightShadow->castsShadows) {
+			continue;
+		}
+
+		for (int cascade = 0; cascade < lightShadow->numCascades && cascade < MAX_SHADOW_CASCADES; cascade++) {
+			const int slot = lightIndex * MAX_SHADOW_CASCADES + cascade;
+			if (slot >= maxSlices) {
+				Log::Warn("Shadow tile slot %d exceeds capacity %d", slot, maxSlices);
+				continue;
+			}
+
+			const shadowMap_t* shadowMap = &lightShadow->cascades[cascade];
+			tileInfo[slot][0] = shadowMap->atlasOffset[0] / atlasSize;
+			tileInfo[slot][1] = shadowMap->atlasOffset[1] / atlasSize;
+			tileInfo[slot][2] = shadowMap->size[0] / atlasSize;
+			tileInfo[slot][3] = shadowMap->size[1] / atlasSize;
+
+			Log::Debug("Tile slot %d -> offset=(%.3f, %.3f) scale=(%.3f, %.3f)", slot,
+			          tileInfo[slot][0], tileInfo[slot][1], tileInfo[slot][2], tileInfo[slot][3]);
+		}
 	}
 }
 
@@ -1148,23 +1220,20 @@ void ShadowMapManager::SetupDirectionalLightMatrix(refLight_t* light, shadowMap_
 }
 
 void ShadowMapManager::SetupPointLightMatrix(refLight_t* light, shadowMap_t* shadowMap, matrix_t viewMatrix, matrix_t projectionMatrix) {
-	// For point lights, we'll use a perspective projection
-	// For now, implement as a single face (will expand to cube map later)
-
+	// For point lights, build one cube-map face per cascade index
 	vec3_t lightPos, lookDir, up;
 	VectorCopy(light->origin, lightPos);
 
-	// Look down -Z axis for now (will implement 6-face cube mapping later)
-	VectorSet(lookDir, 0.0f, 0.0f, -1.0f);
-	VectorSet(up, 0.0f, 1.0f, 0.0f);
+	vec3_t forward;
+	GetCubeFaceBasis(shadowMap->cubeFace, forward, up);
+	VectorCopy(forward, lookDir);
 
-	// Build view matrix
 	MatrixLookAtRH(viewMatrix, lightPos, lookDir, up);
 
-	// Create perspective projection
+	// Create perspective projection for 90° cube-map face
 	float fov = 90.0f; // 90 degree FOV for cube face
 	float aspect = 1.0f;
-	float nearPlane = 1.0f;
+	float nearPlane = std::max(0.02f, light->radius* 0.01f);
 	float farPlane = light->radius;
 
 	// Convert FOV to projection bounds

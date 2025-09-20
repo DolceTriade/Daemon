@@ -1251,20 +1251,25 @@ void Render_lightMapping( shaderStage_t *pStage )
         	shadowParams[3] = 0.0f;                         // unused
         gl_lightMappingShader->SetUniform_ShadowParams( shadowParams );
 
-		// Matrices
-		matrix_t shadowMatrices[16];
-		shadowMapManager.GetShadowMatrices( shadowMatrices, 16 );
-		gl_lightMappingShader->SetUniform_ShadowMatrices( shadowMatrices, 16 );
+		// Matrices & per-slice atlas data
+		const int maxShadowSlices = MAX_SHADOW_LIGHTS * MAX_SHADOW_CASCADES;
+		matrix_t shadowMatrices[maxShadowSlices];
+		shadowMapManager.GetShadowMatrices( shadowMatrices, maxShadowSlices );
+		gl_lightMappingShader->SetUniform_ShadowMatrices( shadowMatrices, maxShadowSlices );
+
+		vec4_t shadowTileInfo[maxShadowSlices];
+		shadowMapManager.GetShadowTileInfo( shadowTileInfo, maxShadowSlices );
+		gl_lightMappingShader->SetUniform_ShadowTileInfo( shadowTileInfo, maxShadowSlices );
 
 		// Light info
-		vec4_t shadowLightInfo[4];
-		shadowMapManager.GetShadowLightInfo( shadowLightInfo, 4 );
-		gl_lightMappingShader->SetUniform_ShadowLightInfo( shadowLightInfo, 4 );
+		vec4_t shadowLightInfo[MAX_SHADOW_LIGHTS];
+		shadowMapManager.GetShadowLightInfo( shadowLightInfo, MAX_SHADOW_LIGHTS );
+		gl_lightMappingShader->SetUniform_ShadowLightInfo( shadowLightInfo, MAX_SHADOW_LIGHTS );
 
-		// Cascade splits
-		vec4_t cascadeSplits[4];
-		shadowMapManager.GetCascadeSplits( cascadeSplits, 4 );
-		gl_lightMappingShader->SetUniform_CascadeSplits( cascadeSplits, 4 );
+		// Cascade splits (directional lights)
+		vec4_t cascadeSplits[MAX_SHADOW_LIGHTS];
+		shadowMapManager.GetCascadeSplits( cascadeSplits, MAX_SHADOW_LIGHTS );
+		gl_lightMappingShader->SetUniform_CascadeSplits( cascadeSplits, MAX_SHADOW_LIGHTS );
 
 		// Technique
 		gl_lightMappingShader->SetUniform_ShadowTechnique( r_shadows.Get() );

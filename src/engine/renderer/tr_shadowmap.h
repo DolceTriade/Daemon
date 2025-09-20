@@ -79,10 +79,11 @@ public:
 	image_t* GetShadowAtlas(const shadowAtlas_t* atlas) const;
 
 	// Shadow data access for shader uniforms
-    void GetShadowMatrices(matrix_t* matrices, int maxMatrices) const;
-    void GetShadowLightInfo(vec4_t* lightInfo, int maxLights) const;
-    void GetCascadeSplits(vec4_t* splits, int maxLights) const;
-    int GetNumShadowLights() const;
+	void GetShadowMatrices(matrix_t* matrices, int maxMatrices) const;
+	void GetShadowLightInfo(vec4_t* lightInfo, int maxLights) const;
+	void GetCascadeSplits(vec4_t* splits, int maxLights) const;
+	void GetShadowTileInfo(vec4_t* tileInfo, int maxSlices) const;
+	int GetNumShadowLights() const;
 
     // Frontend: build per-cascade views (drawSurfs + sort) from precomputed light matrices
     void BuildShadowViews();

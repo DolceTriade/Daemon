@@ -23,6 +23,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #define COMPUTELIGHT_GLSL
 
+#ifndef MAX_SHADOW_LIGHTS
+#define MAX_SHADOW_LIGHTS 8
+#endif
+
 #if !defined(USE_BSP_SURFACE)
 	#define USE_MODEL_SURFACE
 #endif
@@ -202,7 +206,7 @@ void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 vi
 	float shadowFactor = 1.0;
 #if defined(USE_SHADOW_MAPPING)
 	if (shadowSlot >= 0) {
-		shadowFactor = clamp(CalculateShadowFactor(P, viewOrigin, normal, shadowSlot), 0.0, 1.0);
+		shadowFactor = clamp(CalculateShadowFactor(P, viewOrigin, normal, shadowSlot, light.type, light.center.xyz), 0.0, 1.0);
 	}
 #endif
 	// Apply shadow to this light's contribution, not the accumulated color
@@ -246,7 +250,7 @@ void computeDynamicLights( vec3 P, vec3 normal, vec3 viewOrigin, vec3 viewDir, v
 	int numShadowSlots = 0;
 #if defined(USE_SHADOW_MAPPING)
 	if (u_ShadowTechnique > 1) {
-		for (int s = 0; s < 4; s++) {
+		for (int s = 0; s < MAX_SHADOW_LIGHTS; s++) {
 			if (u_ShadowLightInfo[s].y > 0.5) numShadowSlots++;
 		}
 	}

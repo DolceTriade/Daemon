@@ -3300,11 +3300,26 @@ class u_ShadowLightInfo :
 {
 public:
     u_ShadowLightInfo( GLShader *shader ) :
-        GLUniform4fv( shader, "u_ShadowLightInfo", 4 )
+        GLUniform4fv( shader, "u_ShadowLightInfo", MAX_SHADOW_LIGHTS )
     {
     }
 
 	void SetUniform_ShadowLightInfo( vec4_t *data, int count )
+	{
+		this->SetValue( count, data );
+	}
+};
+
+class u_ShadowTileInfo :
+    GLUniform4fv
+{
+public:
+    u_ShadowTileInfo( GLShader *shader ) :
+        GLUniform4fv( shader, "u_ShadowTileInfo", MAX_SHADOW_LIGHTS * MAX_SHADOW_CASCADES )
+    {
+    }
+
+	void SetUniform_ShadowTileInfo( vec4_t *data, int count )
 	{
 		this->SetValue( count, data );
 	}
@@ -3315,7 +3330,7 @@ class u_CascadeSplits :
 {
 public:
     u_CascadeSplits( GLShader *shader ) :
-        GLUniform4fv( shader, "u_CascadeSplits", 4 )
+        GLUniform4fv( shader, "u_CascadeSplits", MAX_SHADOW_LIGHTS )
     {
     }
 
@@ -3411,6 +3426,7 @@ class GLShader_lightMapping :
     public u_ShadowAtlas,
     public u_ShadowParams,
     public u_ShadowMatrices,
+    public u_ShadowTileInfo,
     public u_ShadowLightInfo,
     public u_CascadeSplits,
     public u_ShadowTechnique,
@@ -3491,6 +3507,7 @@ class GLShader_lightMappingMaterial :
 	public u_ShadowAtlas,
 	public u_ShadowParams,
 	public u_ShadowMatrices,
+	public u_ShadowTileInfo,
 	public u_ShadowLightInfo,
 	public u_CascadeSplits,
 	public u_ShadowTechnique,
