@@ -3280,6 +3280,21 @@ public:
 	}
 };
 
+class u_ShadowFlags :
+	GLUniform1i
+{
+public:
+	u_ShadowFlags( GLShader *shader ) :
+		GLUniform1i( shader, "u_ShadowFlags" )
+	{
+	}
+
+	void SetUniform_ShadowFlags( int value )
+	{
+		this->SetValue( value );
+	}
+};
+
 class u_ShadowMatrices :
 	GLUniformMatrix4fv
 {
@@ -3941,6 +3956,7 @@ class GLShader_shadowDepth :
 	public u_Bones,
 	public u_ShadowTechnique,
 	public u_ShadowParams,
+	public u_ShadowFlags,
 	public GLDeformStage,
 	public GLCompileMacro_USE_VERTEX_SKINNING,
 	public GLCompileMacro_USE_VERTEX_ANIMATION

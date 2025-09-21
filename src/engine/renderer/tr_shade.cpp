@@ -1247,8 +1247,8 @@ void Render_lightMapping( shaderStage_t *pStage )
         vec4_t shadowParams;
         shadowParams[0] = r_shadowBias.Get();           // bias
         shadowParams[1] = R_ComputeESMExponent( static_cast<shadowingMode_t>( r_shadows.Get() ), r_shadowESMExponent.Get() );
-        	shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
-        	shadowParams[3] = 0.0f;                         // unused
+		shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
+		shadowParams[3] = r_shadowInverseESMScale.Get(); // inverse light exponent scale
         gl_lightMappingShader->SetUniform_ShadowParams( shadowParams );
 
 		// Matrices & per-slice atlas data
@@ -2104,8 +2104,10 @@ void Tess_StageIteratorShadowDepth()
 		Tess_UpdateVBOs();
 	}
 
-	// Set face culling for shadow rendering - typically front face culling to reduce shadow acne
-	GL_Cull( cullType_t::CT_TWO_SIDED );
+	// Set face culling for shadow rendering (inverse lights need two-sided rendering)
+	cullType_t cullMode = ( backEnd.shadowLightFlags & REF_INVERSE_DLIGHT ) ?
+		cullType_t::CT_TWO_SIDED : cullType_t::CT_FRONT_SIDED;
+	GL_Cull( cullMode );
 
 	// Set vertex attributes needed for shadow depth rendering
 	GLbitfield attribs = ATTR_POSITION;
@@ -2124,26 +2126,30 @@ void Tess_StageIteratorShadowDepth()
 		gl_shadowDepthShader->SetVertexAnimation( tess.vboVertexAnimation );
 		gl_shadowDepthShader->BindProgram( 0 );
 
-        // Set uniforms
-        gl_shadowDepthShader->SetUniform_ModelMatrix( backEnd.orientation.transformMatrix );
-        gl_shadowDepthShader->SetUniform_ModelViewProjectionMatrix(
-            glState.modelViewProjectionMatrix[ glState.stackIndex ] );
-
+		// Set uniforms
+		gl_shadowDepthShader->SetUniform_ModelMatrix( backEnd.orientation.transformMatrix );
+		gl_shadowDepthShader->SetUniform_ModelViewProjectionMatrix(
+			glState.modelViewProjectionMatrix[ glState.stackIndex ] );
 
 		if ( glConfig.vboVertexSkinningAvailable && tess.vboVertexSkinning )
 		{
 			gl_shadowDepthShader->SetUniform_Bones( tess.numBones, tess.bones );
 		}
 
-        gl_shadowDepthShader->SetUniform_ShadowTechnique( r_shadows.Get() );
-        // bind u_ShadowParams
-        vec4_t shadowParams;
-        shadowParams[0] = r_shadowBias.Get();           // bias
-        shadowParams[1] = R_ComputeESMExponent( static_cast<shadowingMode_t>( r_shadows.Get() ), r_shadowESMExponent.Get() );
-        shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
-        shadowParams[3] = 0.0f;                         // unused
-        gl_shadowDepthShader->SetUniform_ShadowParams( shadowParams );
+		gl_shadowDepthShader->SetUniform_ShadowTechnique( r_shadows.Get() );
 
+		vec4_t shaderShadowParams;
+		Vector4Copy( backEnd.shadowParams, shaderShadowParams );
+		if ( backEnd.shadowLightFlags & REF_INVERSE_DLIGHT )
+		{
+			shaderShadowParams[1] *= shaderShadowParams[3];
+		}
+		else
+		{
+			shaderShadowParams[3] = 1.0f;
+		}
+		gl_shadowDepthShader->SetUniform_ShadowParams( shaderShadowParams );
+		gl_shadowDepthShader->SetUniform_ShadowFlags( static_cast<int>( backEnd.shadowLightFlags ) );
 
 		// Set vertex pointers
 		gl_shadowDepthShader->SetRequiredVertexPointers();

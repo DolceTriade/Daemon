@@ -2193,6 +2193,8 @@ enum
 		trRefEntity_t     *currentEntity;
 		bool dirtyDepthBuffer;
 		bool postDepthLightTileRendered = false;
+		uint32_t          shadowLightFlags = 0;
+		vec4_t            shadowParams = { 0.0f, 0.0f, 0.0f, 1.0f };
 
 		bool          projection2D; // if true, drawstretchpic doesn't need to change modes
 		Color::Color32Bit color2D;
@@ -2802,10 +2804,11 @@ struct shadowData_t {
 	// Shadow mapping cvars
 	extern Cvar::Range<Cvar::Cvar<int>> r_shadowMapSize;
 	extern Cvar::Range<Cvar::Cvar<int>> r_shadowCascades;
-	extern Cvar::Range<Cvar::Cvar<int>> r_shadowPCF;
-	extern Cvar::Range<Cvar::Cvar<float>> r_shadowBias;
-	extern Cvar::Range<Cvar::Cvar<float>> r_shadowESMExponent;
-	extern Cvar::Range<Cvar::Cvar<float>> r_shadowVSMBlur;
+extern Cvar::Range<Cvar::Cvar<int>> r_shadowPCF;
+extern Cvar::Range<Cvar::Cvar<float>> r_shadowBias;
+extern Cvar::Range<Cvar::Cvar<float>> r_shadowESMExponent;
+extern Cvar::Range<Cvar::Cvar<float>> r_shadowInverseESMScale;
+extern Cvar::Range<Cvar::Cvar<float>> r_shadowVSMBlur;
 	extern Cvar::Range<Cvar::Cvar<int>> r_shadowLights;
 	extern Cvar::Range<Cvar::Cvar<int>> r_shadowCascadeScheme;
 	extern Cvar::Range<Cvar::Cvar<int>> r_shadowAtlasSize;

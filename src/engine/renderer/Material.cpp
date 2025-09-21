@@ -228,7 +228,7 @@ void UpdateSurfaceDataLightMapping( uint32_t* materials, shaderStage_t* pStage, 
         shadowParams[0] = r_shadowBias.Get();           // bias
         shadowParams[1] = R_ComputeESMExponent( static_cast<shadowingMode_t>( r_shadows.Get() ), r_shadowESMExponent.Get() );
         shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
-        shadowParams[3] = 0.0f;
+        shadowParams[3] = r_shadowInverseESMScale.Get();
         gl_lightMappingShaderMaterial->SetUniform_ShadowParams( shadowParams );
 
         // Matrices & per-slice atlas data

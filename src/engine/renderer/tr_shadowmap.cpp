@@ -776,6 +776,13 @@ void ShadowMapManager::RenderShadowMaps() {
 		for (int cascade = 0; cascade < lightShadow->numCascades; cascade++) {
 			shadowMap_t* shadowMap = &lightShadow->cascades[cascade];
 
+			// Prepare per-light shadow params for the depth pass.
+			backEnd.shadowLightFlags = lightShadow->flags;
+			backEnd.shadowParams[0] = r_shadowBias.Get();
+			backEnd.shadowParams[1] = R_ComputeESMExponent(shadowMap->technique, r_shadowESMExponent.Get());
+			backEnd.shadowParams[2] = r_shadowPCF.Get();
+			backEnd.shadowParams[3] = (lightShadow->flags & REF_INVERSE_DLIGHT) ? r_shadowInverseESMScale.Get() : 1.0f;
+
             // Set up rendering for this shadow map
             GL_Viewport(shadowMap->atlasOffset[0], shadowMap->atlasOffset[1],
                        shadowMap->size[0], shadowMap->size[1]);

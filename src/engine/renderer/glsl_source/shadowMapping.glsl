@@ -50,20 +50,24 @@ uniform int u_ShadowTechnique;
 //
 
 // ESM16 shadow sampling
-float SampleShadowESM16(sampler2D shadowMap, vec3 shadowCoord, float exponent) {
-	// Atlas stores exp(k * z_occluder). Receiver term is exp(k * z_receiver).
-	// Lit when z_receiver <= z_occluder ⇒ exp(k*z_rcv) <= exp(k*z_occ).
-	// A soft test is stored / receiverExp, clamped to [0,1].
-	float stored = texture(shadowMap, shadowCoord.xy).r; // exp(k*z_occ)
-	float receiverExp = exp(exponent * shadowCoord.z);
-	receiverExp = max(receiverExp, 1e-6);
-	float esm = stored / receiverExp;
+float SampleShadowESM16(sampler2D shadowMap, vec3 shadowCoord, float exponent, bool inverseLight) {
+	float stored = texture(shadowMap, shadowCoord.xy).r;
+	float esm;
+	if (inverseLight) {
+		float receiverExp = exp(exponent * (1.0 - shadowCoord.z));
+		float denom = max(stored, 1e-6);
+		esm = receiverExp / denom;
+	} else {
+		float receiverExp = exp(exponent * shadowCoord.z);
+		receiverExp = max(receiverExp, 1e-6);
+		esm = stored / receiverExp;
+	}
 	return clamp(esm, 0.0, 1.0);
 }
 
 // ESM32 shadow sampling (same as ESM16 but with higher precision)
-float SampleShadowESM32(sampler2D shadowMap, vec3 shadowCoord, float exponent) {
-	return SampleShadowESM16(shadowMap, shadowCoord, exponent);
+float SampleShadowESM32(sampler2D shadowMap, vec3 shadowCoord, float exponent, bool inverseLight) {
+	return SampleShadowESM16(shadowMap, shadowCoord, exponent, inverseLight);
 }
 
 // VSM16/32 shadow sampling
@@ -86,9 +90,9 @@ float SampleShadowVSM(sampler2D shadowMap, vec3 shadowCoord) {
 }
 
 // EVSM32 shadow sampling
-float SampleShadowEVSM32(sampler2D shadowMap, vec3 shadowCoord, float exponent) {
+float SampleShadowEVSM32(sampler2D shadowMap, vec3 shadowCoord, float exponent, bool inverseLight) {
 	vec2 texExp = texture(shadowMap, shadowCoord.xy).rg; // [exp(+k*z_occ), exp(-k*z_occ)]
-	float z = shadowCoord.z;
+	float z = inverseLight ? (1.0 - shadowCoord.z) : shadowCoord.z;
 	float posR = exp(exponent * z);
 	float negR = exp(-exponent * z);
 	// For the negative warp, the function is monotonically decreasing,
@@ -99,7 +103,7 @@ float SampleShadowEVSM32(sampler2D shadowMap, vec3 shadowCoord, float exponent) 
 }
 
 // PCF filtering for shadow maps
-float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec2 shadowMapSize, float exponent) {
+float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec2 shadowMapSize, float exponent, bool inverseLight) {
 	vec2 texelSize = 1.0 / shadowMapSize;
 	float shadow = 0.0;
 	int samples = 0;
@@ -108,14 +112,14 @@ float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec
 		// No PCF - single sample
 		switch (u_ShadowTechnique) {
 			case 2: // SHADOWING_ESM16
-				return SampleShadowESM16(shadowMap, shadowCoord, exponent);
+				return SampleShadowESM16(shadowMap, shadowCoord, exponent, inverseLight);
 			case 3: // SHADOWING_ESM32
-				return SampleShadowESM32(shadowMap, shadowCoord, exponent);
+				return SampleShadowESM32(shadowMap, shadowCoord, exponent, inverseLight);
 			case 4: // SHADOWING_VSM16
 			case 5: // SHADOWING_VSM32
 				return SampleShadowVSM(shadowMap, shadowCoord);
 			case 6: // SHADOWING_EVSM32
-				return SampleShadowEVSM32(shadowMap, shadowCoord, exponent);
+				return SampleShadowEVSM32(shadowMap, shadowCoord, exponent, inverseLight);
 			default:
 				return 1.0;
 		}
@@ -127,11 +131,11 @@ float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec
 				vec3 sampleCoord = shadowCoord + vec3(float(x) * texelSize.x, float(y) * texelSize.y, 0.0);
 
 				switch (u_ShadowTechnique) {
-					case 2: shadow += SampleShadowESM16(shadowMap, sampleCoord, exponent); break;
-					case 3: shadow += SampleShadowESM32(shadowMap, sampleCoord, exponent); break;
+					case 2: shadow += SampleShadowESM16(shadowMap, sampleCoord, exponent, inverseLight); break;
+					case 3: shadow += SampleShadowESM32(shadowMap, sampleCoord, exponent, inverseLight); break;
 					case 4:
 					case 5: shadow += SampleShadowVSM(shadowMap, sampleCoord); break;
-					case 6: shadow += SampleShadowEVSM32(shadowMap, sampleCoord, exponent); break;
+					case 6: shadow += SampleShadowEVSM32(shadowMap, sampleCoord, exponent, inverseLight); break;
 					default: shadow += 1.0; break;
 				}
 				samples++;
@@ -145,11 +149,11 @@ float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec
 				vec3 sampleCoord = shadowCoord + vec3(float(x) * texelSize.x, float(y) * texelSize.y, 0.0);
 
 				switch (u_ShadowTechnique) {
-					case 2: shadow += SampleShadowESM16(shadowMap, sampleCoord, exponent); break;
-					case 3: shadow += SampleShadowESM32(shadowMap, sampleCoord, exponent); break;
+					case 2: shadow += SampleShadowESM16(shadowMap, sampleCoord, exponent, inverseLight); break;
+					case 3: shadow += SampleShadowESM32(shadowMap, sampleCoord, exponent, inverseLight); break;
 					case 4:
 					case 5: shadow += SampleShadowVSM(shadowMap, sampleCoord); break;
-					case 6: shadow += SampleShadowEVSM32(shadowMap, sampleCoord, exponent); break;
+					case 6: shadow += SampleShadowEVSM32(shadowMap, sampleCoord, exponent, inverseLight); break;
 					default: shadow += 1.0; break;
 				}
 				samples++;
@@ -173,11 +177,11 @@ float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec
 			vec3 sampleCoord = shadowCoord + vec3(poissonDisk[i] * texelSize, 0.0);
 
 			switch (u_ShadowTechnique) {
-				case 2: shadow += SampleShadowESM16(shadowMap, sampleCoord, exponent); break;
-				case 3: shadow += SampleShadowESM32(shadowMap, sampleCoord, exponent); break;
+				case 2: shadow += SampleShadowESM16(shadowMap, sampleCoord, exponent, inverseLight); break;
+				case 3: shadow += SampleShadowESM32(shadowMap, sampleCoord, exponent, inverseLight); break;
 				case 4:
 				case 5: shadow += SampleShadowVSM(shadowMap, sampleCoord); break;
-				case 6: shadow += SampleShadowEVSM32(shadowMap, sampleCoord, exponent); break;
+				case 6: shadow += SampleShadowEVSM32(shadowMap, sampleCoord, exponent, inverseLight); break;
 				default: shadow += 1.0; break;
 			}
 			samples++;
@@ -282,12 +286,17 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
 
 	// Sample shadow map with PCF
 	float exponent = u_ShadowParams.y;
+	int lightFlags = int(u_ShadowLightInfo[lightIndex].w + 0.5);
+	bool inverseLight = (lightFlags & 1) != 0;
+	if (inverseLight) {
+		exponent *= u_ShadowParams.w;
+	}
 	int pcfFilter = int(u_ShadowParams.z);
     // shadowCoord.xy is already transformed into atlas space, so a single texel
     // step is 1 / r_shadowAtlasSize in each dimension, not 1 / r_shadowMapSize.
     vec2 shadowMapSize = vec2(r_shadowAtlasSize);
 
-	return SampleShadowPCF(u_ShadowAtlas, shadowCoord, pcfFilter, shadowMapSize, exponent);
+	return SampleShadowPCF(u_ShadowAtlas, shadowCoord, pcfFilter, shadowMapSize, exponent, inverseLight);
 }
 
 #endif // USE_SHADOW_MAPPING

@@ -3009,6 +3009,7 @@ GLShader_shadowDepth::GLShader_shadowDepth() :
 	u_Bones( this ),
 	u_ShadowTechnique( this ),
 	u_ShadowParams( this ),
+	u_ShadowFlags( this ),
 	GLDeformStage( this ),
 	GLCompileMacro_USE_VERTEX_SKINNING( this ),
 	GLCompileMacro_USE_VERTEX_ANIMATION( this ) {

@@ -138,6 +138,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 		0.001f, 0.0f, 0.1f );
 	Cvar::Range<Cvar::Cvar<float>> r_shadowESMExponent( "r_shadowESMExponent", "ESM exponent factor", Cvar::NONE,
 		40.0f, 1.0f, 100.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_shadowInverseESMScale( "r_shadowInverseESMScale", "ESM exponent multiplier for inverse lights", Cvar::NONE,
+		0.25f, 0.0f, 1.0f );
 	Cvar::Range<Cvar::Cvar<float>> r_shadowVSMBlur( "r_shadowVSMBlur", "VSM blur radius", Cvar::NONE,
 		2.0f, 0.0f, 8.0f );
 	Cvar::Range<Cvar::Cvar<int>> r_shadowLights( "r_shadowLights", "max shadow casting lights", Cvar::NONE,

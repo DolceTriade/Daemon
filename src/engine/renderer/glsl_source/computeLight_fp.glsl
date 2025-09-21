@@ -214,7 +214,7 @@ void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 vi
 		lightFlags = int(u_ShadowLightInfo[shadowSlot].w + 0.5);
 	}
 #endif
-	bool inverseLight = (lightFlags & REF_INVERSE_DLIGHT) != 0;
+	bool inverseLight = (lightFlags & 1) != 0;
 	vec3 baseLightRGB = attenuation * attenuation * light.color;
 
 #if defined(USE_SHADOW_MAPPING)
