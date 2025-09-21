@@ -27,6 +27,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define MAX_SHADOW_LIGHTS 8
 #endif
 
+const int REF_INVERSE_DLIGHT = 1;
+const int REF_RESTRICT_DLIGHT = 2;
+
 #if !defined(USE_BSP_SURFACE)
 	#define USE_MODEL_SURFACE
 #endif
@@ -204,13 +207,32 @@ void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 vi
     }
 
 	float shadowFactor = 1.0;
+	int lightFlags = 0;
 #if defined(USE_SHADOW_MAPPING)
 	if (shadowSlot >= 0) {
 		shadowFactor = clamp(CalculateShadowFactor(P, viewOrigin, normal, shadowSlot, light.type, light.center.xyz), 0.0, 1.0);
+		lightFlags = int(u_ShadowLightInfo[shadowSlot].w + 0.5);
 	}
 #endif
-	// Apply shadow to this light's contribution, not the accumulated color
-	vec3 lightRGB = attenuation * attenuation * shadowFactor * light.color;
+	bool inverseLight = (lightFlags & REF_INVERSE_DLIGHT) != 0;
+	vec3 baseLightRGB = attenuation * attenuation * light.color;
+
+#if defined(USE_SHADOW_MAPPING)
+	if (inverseLight) {
+		if (shadowSlot >= 0) {
+			float occlusion = clamp(1.0 - shadowFactor, 0.0, 1.0);
+			if (occlusion > 0.0) {
+				vec3 darkness = baseLightRGB * occlusion;
+				computeDeluxeLight(
+				    L, normal, viewDir, -darkness,
+				    diffuse, material, color );
+			}
+		}
+		return;
+	}
+#endif
+
+	vec3 lightRGB = baseLightRGB * shadowFactor;
     computeDeluxeLight(
         L, normal, viewDir, lightRGB,
         diffuse, material, color );

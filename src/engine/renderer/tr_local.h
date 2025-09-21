@@ -397,6 +397,7 @@ enum class ssaoMode {
 
 		vec3_t    origin;
 		vec3_t    color; // range from 0.0 to 1.0, should be color normalized
+		unsigned int flags; // REF_*_DLIGHT bitfield
 
 		float     scale; // r_lightScale if not set
 
@@ -2462,6 +2463,7 @@ struct lightShadowInfo_t {
     float cascadeSplits[MAX_SHADOW_CASCADES];
     // Index of the corresponding scene light (refdef.lights[sceneIndex])
     int sceneIndex;
+    unsigned int flags;
 };
 
     // Encapsulates all frame-dependent shadow mapping data
@@ -2908,7 +2910,7 @@ inline bool checkGLErrors()
 	bool           R_MirrorViewBySurface( drawSurf_t* drawSurf );
 	void           R_RenderView( viewParms_t *parms );
 	// Gather-only version for shadow views: builds drawSurfs and firstDrawSurf without enqueuing commands
-	void           R_GatherShadowView( const viewParms_t *inView, const matrix_t projectionMatrix, viewParms_t *outView );
+	void           R_GatherShadowView( const viewParms_t *inView, const matrix_t projectionMatrix, viewParms_t *outView, bool entitiesOnly );
 	void           R_RenderPostProcess();
 
 	void           R_AddMDVSurfaces( trRefEntity_t *e );

@@ -3006,6 +3006,7 @@ GLShader_shadowDepth::GLShader_shadowDepth() :
 		false, "shadowDepth", "shadowDepth" ),
 	u_ModelMatrix( this ),
 	u_ModelViewProjectionMatrix( this ),
+	u_Bones( this ),
 	u_ShadowTechnique( this ),
 	u_ShadowParams( this ),
 	GLDeformStage( this ),

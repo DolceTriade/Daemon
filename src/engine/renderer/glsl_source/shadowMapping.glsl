@@ -39,7 +39,7 @@ uniform vec4 u_ShadowTileInfo[MAX_SHADOW_SLICES];
 uniform vec4 u_CascadeSplits[MAX_SHADOW_LIGHTS]; // Per light cascade splits
 
 // Light shadow info per shadow slot (vec4 for portability)
-// x: lightIndex in u_Lights (scene/UBO index), y: numSlices, z: baseSliceIndex, w: active flag
+// x: lightIndex in u_Lights (scene/UBO index), y: numSlices, z: baseSliceIndex, w: REF_* flags
 uniform vec4 u_ShadowLightInfo[MAX_SHADOW_LIGHTS];
 
 // Current technique being used
@@ -264,14 +264,14 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
 	// Transform to [0,1] range
 	shadowCoord = shadowCoord * 0.5 + 0.5;
 
-	// Apply shadow bias based on surface normal and light direction
+	// Apply receiver bias and keep depth inside clip range so near-zero samples
+	// (common with point lights placed close to the caster) are not discarded.
 	float bias = u_ShadowParams.x;
-	shadowCoord.z -= bias;
+	shadowCoord.z = clamp(shadowCoord.z - bias, 0.0, 1.0);
 
 	// Check if we're outside the shadow map
 	if (shadowCoord.x < 0.0 || shadowCoord.x > 1.0 ||
-	    shadowCoord.y < 0.0 || shadowCoord.y > 1.0 ||
-	    shadowCoord.z < 0.0 || shadowCoord.z > 1.0) {
+	    shadowCoord.y < 0.0 || shadowCoord.y > 1.0) {
 		return 1.0; // Outside shadow map, fully lit
 	}
 

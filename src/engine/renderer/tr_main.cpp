@@ -2101,7 +2101,7 @@ enqueuing backend draw commands. Uses a provided projection matrix
 and computes frustum from Projection*View.
 ================
 */
-void R_GatherShadowView( const viewParms_t *inView, const matrix_t projectionMatrix, viewParms_t *outView )
+void R_GatherShadowView( const viewParms_t *inView, const matrix_t projectionMatrix, viewParms_t *outView, bool entitiesOnly )
 {
 	if ( inView->viewportWidth <= 0 || inView->viewportHeight <= 0 ) {
 		*outView = {};
@@ -2135,10 +2135,11 @@ void R_GatherShadowView( const viewParms_t *inView, const matrix_t projectionMat
 	MatrixMultiply( tr.viewParms.projectionMatrix, tr.viewParms.world.viewMatrix, mvp );
 	R_SetupFrustum2( tr.viewParms.frustum, mvp );
 
-	// Gather world/entity draw surfaces (avoid material system to prevent interference)
-	R_AddWorldSurfaces();
-
-	R_AddPolygonSurfaces();
+	// Gather draw surfaces (avoid material system to prevent interference)
+	if ( !entitiesOnly ) {
+		R_AddWorldSurfaces();
+		R_AddPolygonSurfaces();
+	}
 	tr.orientation = tr.viewParms.world;
 	R_AddEntitySurfaces();
 

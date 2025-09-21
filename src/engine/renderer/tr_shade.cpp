@@ -2105,10 +2105,17 @@ void Tess_StageIteratorShadowDepth()
 	}
 
 	// Set face culling for shadow rendering - typically front face culling to reduce shadow acne
-	GL_Cull( cullType_t::CT_FRONT_SIDED );
+	GL_Cull( cullType_t::CT_TWO_SIDED );
 
 	// Set vertex attributes needed for shadow depth rendering
-	GL_VertexAttribsState( ATTR_POSITION );
+	GLbitfield attribs = ATTR_POSITION;
+	if (tess.vboVertexSkinning) {
+		attribs |= ATTR_BONE_FACTORS;
+	}
+	if (tess.vboVertexAnimation) {
+		attribs |= ATTR_INTERP_BITS;
+	}
+	GL_VertexAttribsState(attribs);
 
 	// Bind and configure shadowDepth shader
 	if ( gl_shadowDepthShader )
@@ -2121,6 +2128,13 @@ void Tess_StageIteratorShadowDepth()
         gl_shadowDepthShader->SetUniform_ModelMatrix( backEnd.orientation.transformMatrix );
         gl_shadowDepthShader->SetUniform_ModelViewProjectionMatrix(
             glState.modelViewProjectionMatrix[ glState.stackIndex ] );
+
+
+		if ( glConfig.vboVertexSkinningAvailable && tess.vboVertexSkinning )
+		{
+			gl_shadowDepthShader->SetUniform_Bones( tess.numBones, tess.bones );
+		}
+
         gl_shadowDepthShader->SetUniform_ShadowTechnique( r_shadows.Get() );
         // bind u_ShadowParams
         vec4_t shadowParams;

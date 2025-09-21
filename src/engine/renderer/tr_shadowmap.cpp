@@ -359,8 +359,9 @@ bool ShadowMapManager::SetupLightShadows(refLight_t* light, int sceneIndex) {
 
 	lightShadowInfo_t* lightShadow = &sd->lightShadows[lightIndex];
 	memset(lightShadow, 0, sizeof(*lightShadow)); // Use sizeof(*lightShadow) for correct size
-    lightShadow->castsShadows = true;
+	lightShadow->castsShadows = true;
     lightShadow->sceneIndex = sceneIndex;
+    lightShadow->flags = light->flags;
 
 	// Determine number of cascades based on light type
 	if (light->rlType == refLightType_t::RL_DIRECTIONAL) {
@@ -510,6 +511,7 @@ void ShadowMapManager::AddShadowLight(const vec3_t org, float radius, float inte
 	}
 
 	refLight_t* shadowLight = &sd->shadowOnlyLights[sd->numShadowOnlyLights];
+	*shadowLight = {};
 
 	// Set up shadow light properties
 	VectorCopy(org, shadowLight->origin);
@@ -518,6 +520,7 @@ void ShadowMapManager::AddShadowLight(const vec3_t org, float radius, float inte
 	shadowLight->color[0] = r;
 	shadowLight->color[1] = g;
 	shadowLight->color[2] = b;
+    shadowLight->flags = flags;
 
 	// Determine light type (default to omni for now)
 	shadowLight->rlType = refLightType_t::RL_OMNI;
@@ -810,6 +813,9 @@ void ShadowMapManager::RenderShadowMaps() {
                     if ( drawSurf->surface == nullptr ) continue;
 
                     entity = drawSurf->entity;
+                    if ( (lightShadow->flags & (REF_RESTRICT_DLIGHT | REF_INVERSE_DLIGHT)) && entity == &tr.worldEntity ) {
+                        continue;
+                    }
                     shader = drawSurf->shader;
                     lightmapNum = drawSurf->lightmapNum();
                     fogNum = drawSurf->fog;
@@ -989,14 +995,14 @@ void ShadowMapManager::BuildShadowViews() {
                 PerpendicularVector(up, fwd);
                 CrossProduct(fwd, up, right);
                 VectorNegate(right, left);
-		} else { // RL_OMNI and others
-			VectorCopy(light->origin, inView.orientation.origin);
-			VectorCopy(light->origin, inView.orientation.viewOrigin);
-			GetCubeFaceBasis(shadowMap->cubeFace, fwd, up);
-			CrossProduct(fwd, up, right);
-			VectorNormalize(right);
-			VectorNegate(right, left);
-		}
+			} else { // RL_OMNI and others
+				VectorCopy(light->origin, inView.orientation.origin);
+				VectorCopy(light->origin, inView.orientation.viewOrigin);
+				GetCubeFaceBasis(shadowMap->cubeFace, fwd, up);
+				CrossProduct(fwd, up, right);
+				VectorNormalize(right);
+				VectorNegate(right, left);
+			}
             VectorCopy(fwd,  inView.orientation.axis[0]);
             VectorCopy(left, inView.orientation.axis[1]);
             VectorCopy(up,   inView.orientation.axis[2]);
@@ -1007,7 +1013,8 @@ void ShadowMapManager::BuildShadowViews() {
 
             // Gather using light projection
             viewParms_t outView = {};
-            R_GatherShadowView(&inView, shadowMap->lightProjectionMatrix, &outView);
+            bool entitiesOnly = (lightShadow->flags & (REF_RESTRICT_DLIGHT | REF_INVERSE_DLIGHT)) != 0;
+            R_GatherShadowView(&inView, shadowMap->lightProjectionMatrix, &outView, entitiesOnly);
 
             // Store for backend
             shadowMap->viewParms = outView;
@@ -1093,12 +1100,13 @@ void ShadowMapManager::GetShadowLightInfo(vec4_t* lightInfo, int maxLights) cons
 		lightInfo[lightIndex][0] = static_cast<float>(lightShadow->sceneIndex); // sceneIndex
 		lightInfo[lightIndex][1] = static_cast<float>(lightShadow->numCascades); // slice count
 		lightInfo[lightIndex][2] = static_cast<float>(lightIndex * MAX_SHADOW_CASCADES); // base slice
-		lightInfo[lightIndex][3] = lightShadow->castsShadows ? 1.0f : 0.0f; // enabled flag
+		lightInfo[lightIndex][3] = static_cast<float>(lightShadow->flags); // packed REF_* flags
 
-		Log::Debug("Light %d info: sceneIndex=%d, slices=%d, baseSlice=%d", lightIndex,
+		Log::Debug("Light %d info: sceneIndex=%d, slices=%d, baseSlice=%d, flags=0x%X", lightIndex,
 		          static_cast<int>(lightInfo[lightIndex][0]),
 		          static_cast<int>(lightInfo[lightIndex][1]),
-		          static_cast<int>(lightInfo[lightIndex][2]));
+		          static_cast<int>(lightInfo[lightIndex][2]),
+		          lightShadow->flags);
 	}
 
 	// Log all light info for debugging
@@ -1233,8 +1241,15 @@ void ShadowMapManager::SetupPointLightMatrix(refLight_t* light, shadowMap_t* sha
 	// Create perspective projection for 90° cube-map face
 	float fov = 90.0f; // 90 degree FOV for cube face
 	float aspect = 1.0f;
-	float nearPlane = std::max(0.02f, light->radius* 0.01f);
-	float farPlane = light->radius;
+
+	const float radius = std::max(light->radius, 1.0f);
+	const float minNear = 1.0f;
+	const float nearRatio = 0.04f; // push the near plane out to ~4% of the light radius
+	float nearPlane = std::max(minNear, radius * nearRatio);
+	// Avoid collapsing the frustum if the light radius is very small.
+	float maxReasonableNear = std::max(0.5f, radius * 0.5f);
+	nearPlane = std::min(nearPlane, maxReasonableNear);
+	float farPlane = std::max(radius, nearPlane + 32.0f);
 
 	// Convert FOV to projection bounds
 	float top = nearPlane * tanf(DEG2RAD(fov * 0.5f));

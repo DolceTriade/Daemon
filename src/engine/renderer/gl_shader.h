@@ -3938,6 +3938,7 @@ class GLShader_shadowDepth :
 	public GLShader,
 	public u_ModelMatrix,
 	public u_ModelViewProjectionMatrix,
+	public u_Bones,
 	public u_ShadowTechnique,
 	public u_ShadowParams,
 	public GLDeformStage,

@@ -297,12 +297,6 @@ void RE_AddDynamicLightToSceneET( const vec3_t org, float radius, float intensit
 		return;
 	}
 
-	if ( flags & REF_INVERSE_DLIGHT )
-	{
-		//R_AddShadowLight( org, radius, intensity, r, g, b, hShader, flags );
-		return;
-	}
-
 	if ( r_numLights >= MAX_REF_LIGHTS )
 	{
 		return;
@@ -314,6 +308,7 @@ void RE_AddDynamicLightToSceneET( const vec3_t org, float radius, float intensit
 	}
 
 	light = &backEndData[ tr.smpFrame ]->lights[ r_numLights++ ];
+	*light = {};
 
 	light->rlType = refLightType_t::RL_OMNI;
 	VectorCopy( org, light->origin );
@@ -323,6 +318,7 @@ void RE_AddDynamicLightToSceneET( const vec3_t org, float radius, float intensit
 	light->color[ 0 ] = r;
 	light->color[ 1 ] = g;
 	light->color[ 2 ] = b;
+	light->flags = flags;
 
 	// Linearize dynamic lights.
 	if ( tr.worldLinearizeTexture )
@@ -548,6 +544,7 @@ void RE_RenderScene( const refdef_t *fd )
 		if ( r_numLights < MAX_REF_LIGHTS )
 		{
 			refLight_t *sun = &backEndData[ tr.smpFrame ]->lights[ r_numLights++ ];
+			*sun = {};
 			sun->rlType = refLightType_t::RL_DIRECTIONAL;
 			// Compute direction from yaw/pitch cvars (in degrees)
 			float yaw = DEG2RAD( r_debugSunYaw.Get() );
