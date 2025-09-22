@@ -142,6 +142,12 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 		0.25f, 0.0f, 1.0f );
 	Cvar::Range<Cvar::Cvar<float>> r_shadowVSMBlur( "r_shadowVSMBlur", "VSM blur radius", Cvar::NONE,
 		2.0f, 0.0f, 8.0f );
+	Cvar::Range<Cvar::Cvar<int>> r_inverseShadowLights( "r_inverseShadowLights", "number of virtual inverse shadow lights", Cvar::NONE,
+		3, 0, 8 );
+	Cvar::Range<Cvar::Cvar<float>> r_inverseShadowSampleRadius( "r_inverseShadowSampleRadius", "radius around the camera used to sample the light grid for virtual inverse lights", Cvar::NONE,
+		96.0f, 16.0f, 2048.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_inverseShadowIntensityScale( "r_inverseShadowIntensityScale", "intensity multiplier applied to virtual inverse shadow lights", Cvar::NONE,
+		1.0f, 0.1f, 10.0f );
 	Cvar::Range<Cvar::Cvar<int>> r_shadowLights( "r_shadowLights", "max shadow casting lights", Cvar::NONE,
 		4, 1, 8 );
 	Cvar::Range<Cvar::Cvar<int>> r_shadowCascadeScheme( "r_shadowCascadeScheme", "cascade split scheme (0=uniform, 1=logarithmic, 2=practical)", Cvar::NONE,

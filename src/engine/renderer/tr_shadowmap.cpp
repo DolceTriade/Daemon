@@ -28,8 +28,38 @@ along with Daemon Source Code.  If not, see <http://www.gnu.org/licenses/>.
 #include "Material.h"
 #include "gl_shader.h"
 #include <algorithm>
+#include <vector>
 
 static constexpr int kPointLightFaceCount = 6;
+
+namespace {
+
+struct VirtualLightSample {
+	vec3_t direction;
+	vec3_t color;
+	float intensity;
+};
+
+static const float kVirtualSampleDirections[][3] = {
+	{ 1.0f,  0.0f,  0.0f },
+	{-1.0f,  0.0f,  0.0f },
+	{ 0.0f,  1.0f,  0.0f },
+	{ 0.0f, -1.0f,  0.0f },
+	{ 0.0f,  0.0f,  1.0f },
+	{ 0.0f,  0.0f, -1.0f },
+	{ 0.7071f,  0.7071f,  0.0f },
+	{-0.7071f,  0.7071f,  0.0f },
+	{ 0.7071f, -0.7071f,  0.0f },
+	{-0.7071f, -0.7071f,  0.0f },
+	{ 0.0f,  0.7071f,  0.7071f },
+	{ 0.0f, -0.7071f,  0.7071f },
+	{ 0.7071f,  0.0f,  0.7071f },
+	{-0.7071f,  0.0f,  0.7071f }
+};
+
+static constexpr int kVirtualSampleCount = sizeof(kVirtualSampleDirections) / sizeof(kVirtualSampleDirections[0]);
+
+}
 static void GetCubeFaceBasis(int face, vec3_t forward, vec3_t up) {
     static const vec3_t forwardDirs[kPointLightFaceCount] = {
         {  1.0f,  0.0f,  0.0f }, // +X
@@ -342,6 +372,124 @@ void ShadowMapManager::SetupEVSMParams(shadowMap_t* shadowMap) {
 	shadowMap->params.evsm.minVariance = 0.0001f; // Reasonable default
 }
 
+void ShadowMapManager::GenerateVirtualInverseShadowLights() {
+	int desiredLights = r_inverseShadowLights.Get();
+	if (desiredLights <= 0) {
+		return;
+	}
+
+	if (tr.refdef.numLights >= MAX_REF_LIGHTS) {
+		return;
+	}
+
+	int existingInverse = 0;
+	for (int i = 0; i < tr.refdef.numLights; ++i) {
+		if (tr.refdef.lights[i].flags & REF_INVERSE_DLIGHT) {
+			existingInverse++;
+		}
+	}
+
+	if (existingInverse >= desiredLights) {
+		return;
+	}
+
+	int targetAdditional = desiredLights - existingInverse;
+
+	vec3_t viewOrigin;
+	VectorCopy(tr.refdef.vieworg, viewOrigin);
+
+	float sampleRadius = r_inverseShadowSampleRadius.Get();
+	float intensityScale = r_inverseShadowIntensityScale.Get();
+
+	std::vector<VirtualLightSample> samples;
+	samples.reserve(kVirtualSampleCount);
+
+	for (int i = 0; i < kVirtualSampleCount; ++i) {
+		vec3_t dir;
+		VectorCopy(kVirtualSampleDirections[i], dir);
+		VectorNormalize(dir);
+
+		vec3_t samplePos;
+		VectorMA(viewOrigin, sampleRadius, dir, samplePos);
+
+		vec3_t ambient, directed, lightDir;
+		if (!R_LightForPoint(samplePos, ambient, directed, lightDir)) {
+			continue;
+		}
+
+		float intensity = VectorLength(directed);
+		if (intensity <= 1e-4f) {
+			continue;
+		}
+
+		VirtualLightSample sample{};
+		VectorCopy(lightDir, sample.direction);
+		VectorCopy(directed, sample.color);
+		sample.intensity = intensity;
+		samples.push_back(sample);
+	}
+
+	if (samples.empty()) {
+		return;
+	}
+
+	std::sort(samples.begin(), samples.end(), [](const VirtualLightSample& a, const VirtualLightSample& b) {
+		return a.intensity > b.intensity;
+	});
+
+	int availableSlots = MAX_REF_LIGHTS - tr.refdef.numLights;
+	int lightCount = std::min({targetAdditional, availableSlots, static_cast<int>(samples.size())});
+	if (lightCount <= 0) {
+		return;
+	}
+
+	refLight_t* lights = tr.refdef.lights;
+	int baseIndex = tr.refdef.numLights;
+
+	for (int i = 0; i < lightCount; ++i) {
+		const VirtualLightSample& sample = samples[i];
+		refLight_t& light = lights[baseIndex + i];
+		light = {};
+		light.rlType = refLightType_t::RL_PROJ;
+
+		vec3_t dir;
+		VectorCopy(sample.direction, dir);
+		VectorNormalize(dir);
+
+		vec3_t origin;
+		VectorMA(viewOrigin, sampleRadius, dir, origin);
+		float backOff = std::min(32.0f, sampleRadius * 0.5f);
+		VectorMA(origin, -backOff, dir, origin); // pull back slightly to avoid clipping inside surfaces
+		VectorCopy(origin, light.origin);
+		light.radius = sampleRadius * 2.0f;
+		light.flags = REF_RESTRICT_DLIGHT | REF_INVERSE_DLIGHT;
+
+		// Project towards the camera focus
+		VectorSubtract(viewOrigin, light.origin, light.projTarget);
+
+		vec3_t up, temp;
+		vec3_t worldUp = {0.0f, 0.0f, 1.0f};
+		CrossProduct(worldUp, light.projTarget, temp);
+		if (VectorLength(temp) < 1e-3f) {
+			worldUp[0] = 0.0f; worldUp[1] = 1.0f; worldUp[2] = 0.0f;
+			CrossProduct(worldUp, light.projTarget, temp);
+		}
+		VectorNormalize(temp);
+		CrossProduct(light.projTarget, temp, up);
+
+		float coneAngle = DEG2RAD(55.0f);
+		VectorScale(up, tanf(coneAngle) * sampleRadius, light.projUp);
+
+		vec3_t color;
+		VectorCopy(sample.color, color);
+		float maxComponent = std::max({color[0], color[1], color[2], 1e-6f});
+		VectorScale(color, 1.0f / maxComponent, light.color);
+		light.scale = sample.intensity * intensityScale;
+	}
+
+	tr.refdef.numLights += lightCount;
+}
+
 bool ShadowMapManager::SetupLightShadows(refLight_t* light, int sceneIndex) {
     // Frontend builds shadow descriptors in the frontend buffer
     shadowData_t *sd = &backEndData[tr.smpFrame]->shadowData;
@@ -545,6 +693,9 @@ void ShadowMapManager::UpdateShadowMaps() {
     // Tiled forward alignment: build shadows for the first N scene lights so
     // indices match the light buffer order used by tiling and shading.
     const int maxShadowLights = r_shadowLights.Get();
+
+    GenerateVirtualInverseShadowLights();
+
     const int sceneNumLights = tr.refdef.numLights;
     refLight_t* sceneLights = tr.refdef.lights;
 
@@ -1275,22 +1426,35 @@ void ShadowMapManager::SetupSpotLightMatrix(refLight_t* light, shadowMap_t* shad
 	vec3_t lightPos, lightDir, up;
 	VectorCopy(light->origin, lightPos);
 	VectorCopy(light->projTarget, lightDir);
+	VectorCopy(light->projUp, up);
 	VectorNormalize(lightDir);
-
-	// Create up vector
-	PerpendicularVector(up, lightDir);
+	VectorNormalize(up);
 
 	// Build view matrix
 	MatrixLookAtRH(viewMatrix, lightPos, lightDir, up);
 
+
+	float fov = -1.0f;  // Start with assumption that we have a very wide cone.
+	float upLen = VectorLength( light->projUp );
+	float tgtLen = VectorLength( light->projTarget );
+	if ( upLen > 0.0f && tgtLen > 0.0f ) {
+		fov = atan2f( upLen, tgtLen );
+	}
+
 	// Create perspective projection based on spot light cone
-	float fov = 60.0f; // Default spot light cone angle
 	float aspect = 1.0f;
-	float nearPlane = 1.0f;
-	float farPlane = light->radius;
+
+	const float radius = std::max(light->radius, 1.0f);
+	const float minNear = 1.0f;
+	const float nearRatio = 0.04f; // push the near plane out to ~4% of the light radius
+	float nearPlane = std::max(minNear, radius * nearRatio);
+	// Avoid collapsing the frustum if the light radius is very small.
+	float maxReasonableNear = std::max(0.5f, radius * 0.5f);
+	nearPlane = std::min(nearPlane, maxReasonableNear);
+	float farPlane = std::max(radius, nearPlane + 32.0f);
 
 	// Convert FOV to projection bounds
-	float top = nearPlane * tanf(DEG2RAD(fov * 0.5f));
+	float top = nearPlane * tanf(fov);
 	float bottom = -top;
 	float right = top * aspect;
 	float left = -right;

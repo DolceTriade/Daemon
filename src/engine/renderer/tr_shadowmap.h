@@ -112,6 +112,7 @@ private:
 	void SetupESMParams(shadowMap_t* shadowMap);
 	void SetupVSMParams(shadowMap_t* shadowMap);
 	void SetupEVSMParams(shadowMap_t* shadowMap);
+	void GenerateVirtualInverseShadowLights();
 };
 
 // Global shadow map manager
