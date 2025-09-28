@@ -176,11 +176,15 @@ void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 vi
 	vec4 material, inout vec4 color )
 {
 	Light light = GetLight( idx );
+	int typeBits = int(light.type + 0.5);
+	int flagMask = typeBits >> 2;
+	int lightType = typeBits & 3;
+	float lightTypeFloat = float(lightType);
 
 	vec3 L;
 	float attenuation;
 
-	if( light.type == 0.0 ) {
+	if( lightType == 0 ) {
 		// point light
 		L = light.center.xyz - P;
 		// 2.57 ~= 8.0 ^ ( 1.0 / 2.2 ), adjusted after overbright changes
@@ -188,7 +192,7 @@ void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 vi
 		// Quadratic attenuation function instead of linear because of overbright changes
 		attenuation = 1.0 / ( t * t );
 		L = normalize( L );
-	} else if( light.type == 1.0 ) {
+	} else if( lightType == 1 ) {
 		// spot light
 		L = light.center - P;
 		// 2.57 ~= 8.0 ^ ( 1.0 / 2.2 ), adjusted after overbright changes
@@ -200,21 +204,29 @@ void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 vi
 		if( dot( L, light.direction ) <= light.angle ) {
 			attenuation = 0.0;
 		}
-    } else if( light.type == 2.0 ) {
+	} else if( lightType == 2 ) {
         // sun (directional) light: use vector from surface towards light
         L = normalize( -light.direction );
         attenuation = 1.0;
     }
 
+#if defined(USE_SHADOW_MAPPING)
+	int shadowFlags = 0;
+#endif
 	float shadowFactor = 1.0;
-	int lightFlags = 0;
 #if defined(USE_SHADOW_MAPPING)
 	if (shadowSlot >= 0) {
-		shadowFactor = clamp(CalculateShadowFactor(P, viewOrigin, normal, shadowSlot, light.type, light.center.xyz), 0.0, 1.0);
-		lightFlags = int(u_ShadowLightInfo[shadowSlot].w + 0.5);
+		shadowFactor = clamp(CalculateShadowFactor(P, viewOrigin, normal, shadowSlot, lightTypeFloat, light.center.xyz), 0.0, 1.0);
+		shadowFlags = int(u_ShadowLightInfo[shadowSlot].w + 0.5);
 	}
+    int combinedFlags = shadowFlags | flagMask;
+    bool inverseLight = (combinedFlags & REF_INVERSE_DLIGHT) != 0;
+    if (inverseLight && shadowSlot < 0) {
+        return;
+    }
+#else
+    bool inverseLight = (flagMask & REF_INVERSE_DLIGHT) != 0;
 #endif
-	bool inverseLight = (lightFlags & 1) != 0;
 	vec3 baseLightRGB = attenuation * attenuation * light.color;
 
 #if defined(USE_SHADOW_MAPPING)

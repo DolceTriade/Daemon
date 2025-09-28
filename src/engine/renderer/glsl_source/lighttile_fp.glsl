@@ -133,8 +133,11 @@ void main() {
 	or use compute shaders with atomics so we can have a variable amount of lights for each tile. */
 	for( uint i = uint( u_lightLayer ); i < uint( u_numLights ); i += uint( NUM_LIGHT_LAYERS ) ) {
 		Light l = GetLight( i );
+		int typeBits = int(l.type + 0.5);
+		int lightType = typeBits & 3;
+		l.type = float(lightType);
 		// Directional lights (sun) have infinite extent: always include them in tiles
-		if ( l.type == 2.0 ) {
+		if ( lightType == 2 ) {
 			pushIdxs( ( i / uint( NUM_LIGHT_LAYERS ) ) + 1u, lightCount, idxs );
 			lightCount++;
 			if( lightCount == lightsPerLayer ) {

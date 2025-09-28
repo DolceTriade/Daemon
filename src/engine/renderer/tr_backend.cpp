@@ -37,6 +37,8 @@ static Cvar::Cvar<bool> r_clear( "r_clear", "Clear screen before painting over i
 Cvar::Cvar<bool> r_drawSky( "r_drawSky", "Draw the sky (clear the sky if disabled)", Cvar::NONE, true );
 static Cvar::Cvar<int> r_showEntityBounds(
 	"r_showEntityBounds", "show bboxes used for culling (1: wireframe; 2: translucent solid)", Cvar::CHEAT, 0);
+static Cvar::Cvar<bool> r_debugShowDynamicLights(
+	"r_debugShowDynamicLights", "visualize dynamic lights with tetrahedrons", Cvar::CHEAT, false );
 
 void GL_Bind( image_t *image )
 {
@@ -1997,6 +1999,124 @@ static void RB_RenderDebugUtils()
 		}
 	}
 
+	if ( r_debugShowDynamicLights.Get() && backEnd.refdef.numLights > 0 )
+	{
+		gl_genericShader->SetVertexSkinning( false );
+		gl_genericShader->SetVertexAnimation( false );
+		gl_genericShader->SetTCGenEnvironment( false );
+		gl_genericShader->SetTCGenLightmap( false );
+		gl_genericShader->SetDepthFade( false );
+		gl_genericShader->BindProgram( 0 );
+
+		gl_genericShader->SetUniform_AlphaTest( GLS_ATEST_NONE );
+		SetUniform_ColorModulateColorGen( gl_genericShader, colorGen_t::CGEN_VERTEX, alphaGen_t::AGEN_VERTEX );
+		SetUniform_Color( gl_genericShader, Color::Black );
+
+		GL_State( GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_DEPTHTEST_DISABLE );
+		GL_Cull( cullType_t::CT_TWO_SIDED );
+
+		backEnd.orientation = backEnd.viewParms.world;
+		GL_LoadModelViewMatrix( backEnd.orientation.modelViewMatrix );
+		gl_genericShader->SetUniform_ModelViewProjectionMatrix( glState.modelViewProjectionMatrix[ glState.stackIndex ] );
+
+		gl_genericShader->SetUniform_ColorMapBindless(
+			GL_BindToTMU( 0, tr.whiteImage )
+		);
+		gl_genericShader->SetUniform_TextureMatrix( matrixIdentity );
+
+		Tess_Begin( Tess_StageIteratorDebug, nullptr, true, -1, 0 );
+		GL_CheckErrors();
+
+		const refLight_t* lights = backEnd.refdef.lights;
+		for ( int i = 0; i < backEnd.refdef.numLights; ++i )
+		{
+			const refLight_t& light = lights[ i ];
+			if ( light.rlType >= refLightType_t::RL_MAX_REF_LIGHT_TYPE )
+			{
+				continue;
+			}
+			if ( light.rlType == refLightType_t::RL_DIRECTIONAL ) {
+				continue;
+			}
+
+			vec3_t baseOrigin;
+			VectorCopy( light.origin, baseOrigin );
+
+			float length = light.radius;
+			if ( length <= 0.0f )
+			{
+				length = 16.0f;
+			}
+
+			auto addArrow = [&]( const float dirInput[3], const Color::Color& arrowColor )
+			{
+				vec3_t dir;
+				VectorCopy( dirInput, dir );
+				if ( VectorNormalize( dir ) == 0.0f )
+				{
+					VectorSet( dir, 0.0f, 0.0f, 1.0f );
+				}
+
+				vec3_t tip;
+				VectorMA( baseOrigin, length, dir, tip );
+
+				vec3_t localTmp;
+				vec3_t localTmp2;
+				vec3_t localTmp3;
+				PerpendicularVector( localTmp, dir );
+				VectorScale( localTmp, length * 0.2f, localTmp2 );
+				VectorMA( localTmp2, length * 0.3f, dir, localTmp2 );
+
+				vec4_t localVerts[ 4 ];
+				for ( int k = 0; k < 3; k++ )
+				{
+					RotatePointAroundVector( localTmp3, dir, localTmp2, k * 120.0f );
+					VectorAdd( localTmp3, baseOrigin, localTmp3 );
+					VectorCopy( localTmp3, localVerts[ k ] );
+					localVerts[ k ][ 3 ] = 1.0f;
+				}
+
+				VectorCopy( baseOrigin, localVerts[ 3 ] );
+				localVerts[ 3 ][ 3 ] = 1.0f;
+				Tess_AddTetrahedron( localVerts, arrowColor );
+
+
+				VectorCopy( tip, localVerts[ 3 ] );
+				localVerts[ 3 ][ 3 ] = 1.0f;
+
+				Tess_AddTetrahedron( localVerts, arrowColor );
+			};
+
+			Color::Color color;
+			switch ( light.rlType )
+			{
+				case refLightType_t::RL_PROJ:
+					color = Color::LtGrey;
+					addArrow( light.projTarget, color );
+					break;
+				default:
+					color = Color::MdGrey;
+				{
+					static const vec3_t kOmniDirs[ 6 ] = {
+						{ 1.0f, 0.0f, 0.0f },
+						{ -1.0f, 0.0f, 0.0f },
+						{ 0.0f, 1.0f, 0.0f },
+						{ 0.0f, -1.0f, 0.0f },
+						{ 0.0f, 0.0f, 1.0f },
+						{ 0.0f, 0.0f, -1.0f }
+					};
+					for ( int dirIndex = 0; dirIndex < 6; ++dirIndex )
+					{
+						addArrow( kOmniDirs[ dirIndex ], color );
+					}
+				}
+					break;
+			}
+		}
+
+		Tess_End();
+	}
+
 	// GLSL shader isn't built when reflection mapping is disabled.
 	if ( r_showCubeProbes.Get() && glConfig.reflectionMapping &&
 	     !( backEnd.refdef.rdflags & ( RDF_NOWORLDMODEL | RDF_NOCUBEMAP ) ) )
@@ -2206,7 +2326,7 @@ static void RB_RenderDebugUtils()
 
 					R_LightForPoint( origin, ambientColor.ToArray(),
 							 directedColor.ToArray(), lightDir );
-					VectorNegate( lightDir, lightDir );
+					//VectorNegate( lightDir, lightDir );
 
 					length = 8;
 					VectorMA( origin, 8, lightDir, offset );
@@ -3356,6 +3476,7 @@ const RenderCommand *SetupLightsCommand::ExecuteSelf( ) const
 
 	if( (numLights = refdef.numLights) > 0 ) {
 		shaderLight_t *buffer;
+		shadowData_t *sd = &backEndData[ backEnd.smpFrame ]->shadowData;
 
 		glBindBuffer( bufferTarget, tr.dlightUBO );
 		buffer = (shaderLight_t *)glMapBufferRange( bufferTarget,
@@ -3367,8 +3488,27 @@ const RenderCommand *SetupLightsCommand::ExecuteSelf( ) const
 
         VectorCopy( light->origin, buffer[i].center );
         buffer[i].radius = light->radius;
-        VectorScale( light->color, 4.0f * light->scale, buffer[i].color );
-        buffer[i].type = Util::ordinal( light->rlType );
+        vec3_t scaledColor;
+        VectorScale( light->color, 4.0f * light->scale, scaledColor );
+
+        bool inverseLight = ( light->flags & REF_INVERSE_DLIGHT ) != 0;
+        bool hasShadow = ( j >= 0 && j < MAX_REF_LIGHTS ) ? sd->sceneLightHasShadows[j] : false;
+        if ( inverseLight && !hasShadow ) {
+            VectorClear( scaledColor );
+        }
+
+        VectorCopy( scaledColor, buffer[i].color );
+        int baseType = Util::ordinal( light->rlType );
+        int flagMask = 0;
+        if ( hasShadow ) {
+            if ( inverseLight ) {
+                flagMask |= REF_INVERSE_DLIGHT;
+            }
+            if ( light->flags & REF_RESTRICT_DLIGHT ) {
+                flagMask |= REF_RESTRICT_DLIGHT;
+            }
+        }
+        buffer[i].type = float( baseType | ( flagMask << 2 ) );
         switch( light->rlType ) {
         case refLightType_t::RL_PROJ: {
             // Spot light: direction from projTarget, angle from projUp/projTarget lengths

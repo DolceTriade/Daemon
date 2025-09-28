@@ -27,6 +27,18 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <iomanip>
 #include "Material.h"
 
+static std::vector<LightmapCpuData>* g_lightmapCaptureTarget = nullptr;
+
+void R_BeginLightmapCpuCapture( std::vector<LightmapCpuData>* target )
+{
+	g_lightmapCaptureTarget = target;
+}
+
+void R_EndLightmapCpuCapture()
+{
+	g_lightmapCaptureTarget = nullptr;
+}
+
 static Cvar::Cvar<bool> r_allowImageParamMismatch(
 	"r_allowImageParamMismatch", "reuse images when requested with different parameters",
 	Cvar::NONE, false);
@@ -1862,6 +1874,15 @@ image_t *R_FindImageFile( const char *imageName, imageParams_t &imageParams )
 	if ( imageParams.bits & IF_LIGHTMAP )
 	{
 		R_ProcessLightmap( *pic, width, height, imageParams.bits );
+	}
+
+	if ( ( imageParams.bits & IF_LIGHTMAP ) && g_lightmapCaptureTarget ) {
+		LightmapCpuData cpuCopy;
+		cpuCopy.width = width;
+		cpuCopy.height = height;
+		size_t baseSize = static_cast<size_t>( width ) * static_cast<size_t>( height ) * 4;
+		cpuCopy.rgba.assign( *pic, *pic + baseSize );
+		g_lightmapCaptureTarget->push_back( std::move( cpuCopy ) );
 	}
 
 	image_t *image = R_CreateImage( imageName, (const byte **)pic, width, height, numMips, imageParams );

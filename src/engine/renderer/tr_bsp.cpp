@@ -28,6 +28,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "GeometryOptimiser.h"
 #include "ShadeCommon.h"
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
 /*
 ========================================================
 Loads and prepares a map file for scene rendering.
@@ -39,6 +43,32 @@ RE_LoadWorldMap(const char *name);
 
 static world_t    s_worldData;
 static byte       *fileBase;
+
+struct LightmapHotspot
+{
+	float u = 0.0f;
+	float v = 0.0f;
+	float weight = 0.0f;
+	float peak = 0.0f;
+	float varianceU = 0.0f;
+	float varianceV = 0.0f;
+	float border = 0.0f;
+	vec3_t color = { 1.0f, 1.0f, 1.0f };
+};
+
+static Cvar::Cvar<bool> r_virtualSpotLights( "r_virtualSpotLights", "derive virtual spotlights from baked lightmaps", Cvar::NONE, true );
+static Cvar::Range<Cvar::Cvar<float>> r_virtualSpotLightThreshold( "r_virtualSpotLightThreshold", "brightness threshold for extracting lightmap hotspots", Cvar::NONE, 0.6f, 0.0f, 2.0f );
+static Cvar::Range<Cvar::Cvar<int>> r_virtualSpotLightBlurRadius( "r_virtualSpotLightBlurRadius", "box blur radius (in texels) applied before hotspot detection", Cvar::NONE, 1, 0, 4 );
+static Cvar::Range<Cvar::Cvar<int>> r_virtualSpotLightPerSurface( "r_virtualSpotLightPerSurface", "maximum number of virtual spotlights generated per surface", Cvar::NONE, 2, 0, 16 );
+static Cvar::Cvar<float> r_virtualSpotLightIntensityScale( "r_virtualSpotLightIntensityScale", "scale factor applied to derived spotlight intensity", Cvar::NONE, 2.0f );
+static Cvar::Cvar<float> r_virtualSpotLightMinWeight( "r_virtualSpotLightMinWeight", "minimum integrated hotspot brightness required to create a light", Cvar::NONE, 0.02f );
+static Cvar::Cvar<float> r_virtualSpotLightNormalOffset( "r_virtualSpotLightNormalOffset", "offset distance from the surface along the normal when placing the virtual spotlight origin", Cvar::NONE, 12.0f );
+static Cvar::Cvar<float> r_virtualSpotLightMinRadius( "r_virtualSpotLightMinRadius", "minimum footprint radius in world units for a derived spotlight", Cvar::NONE, 8.0f );
+static Cvar::Range<Cvar::Cvar<float>> r_virtualSpotLightMinHalfAngle( "r_virtualSpotLightMinHalfAngle", "lower clamp for the derived spotlight half angle in degrees", Cvar::NONE, 8.0f, 1.0f, 89.0f );
+static Cvar::Range<Cvar::Cvar<float>> r_virtualSpotLightMaxHalfAngle( "r_virtualSpotLightMaxHalfAngle", "upper clamp for the derived spotlight half angle in degrees", Cvar::NONE, 75.0f, 1.0f, 89.0f );
+
+static std::vector<LightmapCpuData> s_lightmapCpuData;
+static std::vector<std::vector<LightmapHotspot>> s_lightmapHotspots;
 
 //===============================================================================
 
@@ -475,12 +505,42 @@ R_LoadLightmaps
 static void R_LoadLightmaps( lump_t *l, const char *bspName )
 {
 	tr.worldLightMapping = r_precomputedLighting->integer && tr.lightMode == lightMode_t::MAP;
+	s_lightmapCpuData.clear();
+	s_lightmapCpuData.shrink_to_fit();
+	s_lightmapHotspots.clear();
+	s_lightmapHotspots.shrink_to_fit();
 
 	/* All lightmaps will be loaded if either light mapping
 	or deluxe mapping is enabled. */
 	if ( !tr.worldLightMapping && !tr.worldDeluxeMapping )
 	{
 		return;
+	}
+
+	const bool captureLightmapCpu = r_virtualSpotLights.Get();
+	struct CaptureGuard {
+		bool active;
+		CaptureGuard( bool shouldCapture ) : active( shouldCapture )
+		{
+			if ( active )
+			{
+				R_BeginLightmapCpuCapture( &s_lightmapCpuData );
+			}
+		}
+
+		~CaptureGuard()
+		{
+			if ( active )
+			{
+				R_EndLightmapCpuCapture();
+			}
+		}
+	} captureGuard( captureLightmapCpu );
+
+	if ( captureLightmapCpu )
+	{
+		s_lightmapCpuData.clear();
+		s_lightmapHotspots.clear();
 	}
 
 	int lightMapBits = IF_LIGHTMAP | IF_NOPICMIP;
@@ -540,6 +600,16 @@ static void R_LoadLightmaps( lump_t *l, const char *bspName )
 				auto image = R_CreateImage( va( "%s/%s", mapName, filename.c_str() ), (const byte **)&ldrImage, width, height, 1, imageParams );
 
 				tr.lightmaps.push_back( image );
+
+				if ( captureLightmapCpu )
+				{
+					LightmapCpuData cpuCopy;
+					cpuCopy.width = width;
+					cpuCopy.height = height;
+					size_t size = static_cast<size_t>( width ) * static_cast<size_t>( height ) * 4;
+					cpuCopy.rgba.assign( ldrImage, ldrImage + size );
+					s_lightmapCpuData.push_back( std::move( cpuCopy ) );
+				}
 
 				Z_Free( ldrImage );
 			}
@@ -673,6 +743,16 @@ static void R_LoadLightmaps( lump_t *l, const char *bspName )
 			image_t *internalLightMap = R_CreateImage( va( "_internalLightMap%d", i ), (const byte **)&lightMapBuffer, internalLightMapSize, internalLightMapSize, 1, imageParams );
 			tr.lightmaps.push_back( internalLightMap );
 
+			if ( captureLightmapCpu )
+			{
+				LightmapCpuData cpuCopy;
+				cpuCopy.width = internalLightMapSize;
+				cpuCopy.height = internalLightMapSize;
+				size_t size = static_cast<size_t>( internalLightMapSize ) * static_cast<size_t>( internalLightMapSize ) * 4;
+				cpuCopy.rgba.assign( lightMapBuffer, lightMapBuffer + size );
+				s_lightmapCpuData.push_back( std::move( cpuCopy ) );
+			}
+
 			ri.Hunk_FreeTempMemory( lightMapBuffer );
 		}
 	}
@@ -800,7 +880,7 @@ static void FinishSkybox() {
 		 |  /  | /    | /
 		 | /   |/     |/
 		 |/    0------3
-		 0---------->x  
+		 0---------->x
 		   Verts:
 		   0: -100 -100 -100
 		   1: -100 100 -100
@@ -1287,6 +1367,556 @@ static void ParseMesh( dsurface_t *ds, drawVert_t *verts, bspSurface_t *surf )
 
 	SphereFromBounds( grid->bounds[0], grid->bounds[1], grid->origin, &grid->radius );
 }
+
+namespace
+{
+struct VirtualLightCandidate
+{
+	refLight_t light;
+	float weight = 0.0f;
+	float peak = 0.0f;
+};
+
+static float ComputeLuminance( const byte* rgba )
+{
+	return std::max( { rgba[ 0 ], rgba[ 1 ], rgba[ 2 ] } ) / 255.0f;
+}
+
+static void ExtractColor( const byte* rgba, vec3_t outColor )
+{
+	outColor[ 0 ] = rgba[ 0 ] / 255.0f;
+	outColor[ 1 ] = rgba[ 1 ] / 255.0f;
+	outColor[ 2 ] = rgba[ 2 ] / 255.0f;
+}
+
+static void AnalyzeLightmapHotspots( int lightmapIndex, const LightmapCpuData& cpu, std::vector<LightmapHotspot>& outHotspots )
+{
+	outHotspots.clear();
+	(void)lightmapIndex;
+
+	if ( !cpu.IsValid() )
+	{
+		return;
+	}
+
+	const int width = cpu.width;
+	const int height = cpu.height;
+	const byte* rgba = cpu.rgba.data();
+	if ( width <= 0 || height <= 0 || !rgba )
+	{
+		return;
+	}
+
+	const size_t texelCount = static_cast<size_t>( width ) * static_cast<size_t>( height );
+	std::vector<float> luminance( texelCount, 0.0f );
+	for ( int y = 0; y < height; ++y )
+	{
+		for ( int x = 0; x < width; ++x )
+		{
+			size_t idx = static_cast<size_t>( y ) * width + x;
+			luminance[ idx ] = ComputeLuminance( &rgba[ idx * 4 ] );
+		}
+	}
+
+	int blurRadius = r_virtualSpotLightBlurRadius.Get();
+	std::vector<float> filtered = luminance;
+	if ( blurRadius > 0 )
+	{
+		std::vector<float> temp( texelCount, 0.0f );
+		for ( int y = 0; y < height; ++y )
+		{
+			for ( int x = 0; x < width; ++x )
+			{
+				size_t idx = static_cast<size_t>( y ) * width + x;
+				float sum = 0.0f;
+				int count = 0;
+				for ( int dy = -blurRadius; dy <= blurRadius; ++dy )
+				{
+					int sy = std::clamp( y + dy, 0, height - 1 );
+					for ( int dx = -blurRadius; dx <= blurRadius; ++dx )
+					{
+						int sx = std::clamp( x + dx, 0, width - 1 );
+						size_t nidx = static_cast<size_t>( sy ) * width + sx;
+						sum += luminance[ nidx ];
+						count++;
+					}
+				}
+				temp[ idx ] = sum / std::max( count, 1 );
+			}
+		}
+		filtered.swap( temp );
+	}
+
+	const float threshold = r_virtualSpotLightThreshold.Get();
+	if ( threshold <= 0.0f )
+	{
+		return;
+	}
+
+	std::vector<int> labels( texelCount, -1 );
+	int labelCounter = 0;
+	static const int neighborOffsets[ 4 ][ 2 ] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+
+	for ( int y = 0; y < height; ++y )
+	{
+		for ( int x = 0; x < width; ++x )
+		{
+			size_t idx = static_cast<size_t>( y ) * width + x;
+			if ( labels[ idx ] != -1 || filtered[ idx ] < threshold )
+			{
+				continue;
+			}
+
+			float totalWeight = 0.0f;
+			float sumU = 0.0f;
+			float sumV = 0.0f;
+			float sumUSq = 0.0f;
+			float sumVSq = 0.0f;
+			float peakValue = 0.0f;
+			vec3_t peakColor = { 1.0f, 1.0f, 1.0f };
+			float borderSum = 0.0f;
+			int borderCount = 0;
+			std::vector<int> stack;
+			stack.push_back( static_cast<int>( idx ) );
+
+			while ( !stack.empty() )
+			{
+				int current = stack.back();
+				stack.pop_back();
+
+				if ( labels[ current ] != -1 )
+				{
+					continue;
+				}
+
+				if ( filtered[ current ] < threshold )
+				{
+					continue;
+				}
+
+				labels[ current ] = labelCounter;
+
+				int cx = current % width;
+				int cy = current / width;
+				float pixelU = ( cx + 0.5f ) / static_cast<float>( width );
+				float pixelV = ( cy + 0.5f ) / static_cast<float>( height );
+				float rawValue = luminance[ current ];
+				float weight = std::max( filtered[ current ], threshold * 0.5f );
+
+				totalWeight += weight;
+				sumU += weight * pixelU;
+				sumV += weight * pixelV;
+				sumUSq += weight * pixelU * pixelU;
+				sumVSq += weight * pixelV * pixelV;
+
+				if ( rawValue > peakValue )
+				{
+					peakValue = rawValue;
+					ExtractColor( &rgba[ current * 4 ], peakColor );
+				}
+
+				for ( const auto& offset : neighborOffsets )
+				{
+					int nx = cx + offset[ 0 ];
+					int ny = cy + offset[ 1 ];
+					if ( nx < 0 || ny < 0 || nx >= width || ny >= height )
+					{
+						continue;
+					}
+
+					size_t neighborIdx = static_cast<size_t>( ny ) * width + nx;
+					if ( filtered[ neighborIdx ] >= threshold && labels[ neighborIdx ] == -1 )
+					{
+						stack.push_back( static_cast<int>( neighborIdx ) );
+					}
+					else
+					{
+						borderSum += luminance[ neighborIdx ];
+						borderCount++;
+					}
+				}
+			}
+
+			labelCounter++;
+
+			if ( totalWeight <= r_virtualSpotLightMinWeight.Get() )
+			{
+				continue;
+			}
+
+			LightmapHotspot hotspot;
+			hotspot.u = sumU / totalWeight;
+			hotspot.v = sumV / totalWeight;
+			hotspot.weight = totalWeight;
+			hotspot.peak = peakValue;
+			hotspot.border = ( borderCount > 0 ) ? ( borderSum / borderCount ) : threshold;
+			float meanUSq = sumUSq / totalWeight;
+			float meanVSq = sumVSq / totalWeight;
+			hotspot.varianceU = std::max( 0.0f, meanUSq - hotspot.u * hotspot.u );
+			hotspot.varianceV = std::max( 0.0f, meanVSq - hotspot.v * hotspot.v );
+			VectorCopy( peakColor, hotspot.color );
+
+			outHotspots.push_back( hotspot );
+		}
+	}
+}
+
+static bool ComputeBarycentric( float u, float v, const float uv0[2], const float uv1[2], const float uv2[2], float& w0, float& w1, float& w2 )
+{
+	float denom = ( uv1[ 1 ] - uv2[ 1 ] ) * ( uv0[ 0 ] - uv2[ 0 ] ) + ( uv2[ 0 ] - uv1[ 0 ] ) * ( uv0[ 1 ] - uv2[ 1 ] );
+	if ( fabsf( denom ) < 1e-8f )
+	{
+		return false;
+	}
+
+	float invDenom = 1.0f / denom;
+	w0 = ( ( uv1[ 1 ] - uv2[ 1 ] ) * ( u - uv2[ 0 ] ) + ( uv2[ 0 ] - uv1[ 0 ] ) * ( v - uv2[ 1 ] ) ) * invDenom;
+	w1 = ( ( uv2[ 1 ] - uv0[ 1 ] ) * ( u - uv2[ 0 ] ) + ( uv0[ 0 ] - uv2[ 0 ] ) * ( v - uv2[ 1 ] ) ) * invDenom;
+	w2 = 1.0f - w0 - w1;
+	return true;
+}
+
+static float VectorLengthSquared( const vec3_t v )
+{
+	return DotProduct( v, v );
+}
+
+static bool SampleSurfaceAtLightmapUV( const srfGeneric_t* surface, float u, float v, vec3_t outPos, vec3_t outNormal, vec3_t outDpDu, vec3_t outDpDv )
+{
+	if ( !surface || !surface->verts || surface->numTriangles <= 0 )
+	{
+		return false;
+	}
+
+	bool found = false;
+	for ( int triIndex = 0; triIndex < surface->numTriangles; ++triIndex )
+	{
+		const srfTriangle_t& tri = surface->triangles[ triIndex ];
+		const srfVert_t& v0 = surface->verts[ tri.indexes[ 0 ] ];
+		const srfVert_t& v1 = surface->verts[ tri.indexes[ 1 ] ];
+		const srfVert_t& v2 = surface->verts[ tri.indexes[ 2 ] ];
+
+		float w0, w1, w2;
+		if ( !ComputeBarycentric( u, v, v0.lightmap, v1.lightmap, v2.lightmap, w0, w1, w2 ) )
+		{
+			continue;
+		}
+
+		constexpr float epsilon = 1e-3f;
+		if ( w0 < -epsilon || w1 < -epsilon || w2 < -epsilon )
+		{
+			continue;
+		}
+
+		vec3_t p0, p1, p2;
+		VectorCopy( v0.xyz, p0 );
+		VectorCopy( v1.xyz, p1 );
+		VectorCopy( v2.xyz, p2 );
+
+		for ( int i = 0; i < 3; ++i )
+		{
+			outPos[ i ] = w0 * p0[ i ] + w1 * p1[ i ] + w2 * p2[ i ];
+			outNormal[ i ] = w0 * v0.normal[ i ] + w1 * v1.normal[ i ] + w2 * v2.normal[ i ];
+		}
+
+		vec3_t edge1, edge2;
+		VectorSubtract( p1, p0, edge1 );
+		VectorSubtract( p2, p0, edge2 );
+
+		float du1 = v1.lightmap[ 0 ] - v0.lightmap[ 0 ];
+		float dv1 = v1.lightmap[ 1 ] - v0.lightmap[ 1 ];
+		float du2 = v2.lightmap[ 0 ] - v0.lightmap[ 0 ];
+		float dv2 = v2.lightmap[ 1 ] - v0.lightmap[ 1 ];
+
+		float det = du1 * dv2 - du2 * dv1;
+		if ( fabsf( det ) > 1e-8f )
+		{
+			float invDet = 1.0f / det;
+			vec3_t termA, termB;
+
+			VectorScale( edge1, dv2, termA );
+			VectorScale( edge2, -dv1, termB );
+			VectorAdd( termA, termB, outDpDu );
+			VectorScale( outDpDu, invDet, outDpDu );
+
+			VectorScale( edge2, du1, termA );
+			VectorScale( edge1, -du2, termB );
+			VectorAdd( termA, termB, outDpDv );
+			VectorScale( outDpDv, invDet, outDpDv );
+		}
+		else
+		{
+			VectorClear( outDpDu );
+			VectorClear( outDpDv );
+		}
+
+		found = true;
+		break;
+	}
+
+	if ( !found )
+	{
+		return false;
+	}
+
+	if ( VectorLengthSquared( outDpDu ) < 1e-6f || VectorLengthSquared( outDpDv ) < 1e-6f )
+	{
+		vec3_t tangent;
+		PerpendicularVector( tangent, outNormal );
+		vec3_t bitangent;
+		CrossProduct( outNormal, tangent, bitangent );
+		VectorCopy( tangent, outDpDu );
+		VectorCopy( bitangent, outDpDv );
+	}
+
+	if ( VectorLengthSquared( outNormal ) < 1e-6f )
+	{
+		PerpendicularVector( outNormal, outDpDu );
+	}
+
+	VectorNormalize( outNormal );
+	return true;
+}
+
+static bool BuildCandidateFromHotspot( const bspSurface_t* surf, const srfGeneric_t* surface, const LightmapHotspot& hotspot, VirtualLightCandidate& outCandidate )
+{
+	(void)surf;
+	float intensity = std::max( hotspot.peak - hotspot.border, 0.0f );
+	if ( intensity <= 0.0f )
+	{
+		return false;
+	}
+
+	vec3_t samplePos, sampleNormal, dPdu, dPdv;
+	if ( !SampleSurfaceAtLightmapUV( surface, hotspot.u, hotspot.v, samplePos, sampleNormal, dPdu, dPdv ) )
+	{
+		return false;
+	}
+
+	float offsetDist = std::max( r_virtualSpotLightNormalOffset.Get(), 1.0f );
+	vec3_t origin;
+	VectorMA( samplePos, offsetDist, sampleNormal, origin );
+
+	vec3_t projTarget;
+	VectorSubtract( samplePos, origin, projTarget );
+	float targetLength = VectorLength( projTarget );
+	if ( targetLength < 1e-3f )
+	{
+		return false;
+	}
+
+	vec3_t dirNorm;
+	VectorCopy( projTarget, dirNorm );
+	VectorNormalize( dirNorm );
+
+	float worldVariance = hotspot.varianceU * VectorLengthSquared( dPdu ) + hotspot.varianceV * VectorLengthSquared( dPdv );
+	float worldRadius = std::sqrt( std::max( worldVariance, 0.0f ) );
+	worldRadius = std::max( worldRadius, r_virtualSpotLightMinRadius.Get() );
+
+	float halfAngle = atanf( worldRadius / std::max( targetLength, 1.0f ) );
+	float minHalfAngle = DEG2RAD( r_virtualSpotLightMinHalfAngle.Get() );
+	float maxHalfAngle = DEG2RAD( r_virtualSpotLightMaxHalfAngle.Get() );
+	halfAngle = std::clamp( halfAngle, minHalfAngle, maxHalfAngle );
+
+	vec3_t tangent;
+	VectorCopy( dPdu, tangent );
+	if ( VectorLengthSquared( tangent ) < 1e-6f )
+	{
+		VectorCopy( dPdv, tangent );
+	}
+	float proj = DotProduct( tangent, dirNorm );
+	VectorMA( tangent, -proj, dirNorm, tangent );
+	if ( VectorNormalize( tangent ) == 0.0f )
+	{
+		PerpendicularVector( tangent, dirNorm );
+	}
+
+	float upLen = targetLength * tanf( halfAngle );
+	vec3_t projUp;
+	VectorScale( tangent, upLen, projUp );
+
+	vec3_t color = { hotspot.color[ 0 ], hotspot.color[ 1 ], hotspot.color[ 2 ] };
+	float maxComponent = std::max( { color[ 0 ], color[ 1 ], color[ 2 ], 1e-5f } );
+	VectorScale( color, 1.0f / maxComponent, color );
+
+	refLight_t light = {};
+	light.rlType = refLightType_t::RL_PROJ;
+	VectorCopy( origin, light.origin );
+	VectorCopy( color, light.color );
+	VectorCopy( projTarget, light.projUp );
+	VectorCopy( projUp, light.projTarget );
+	light.radius = targetLength + worldRadius;
+	light.scale = intensity * hotspot.weight * r_virtualSpotLightIntensityScale.Get();
+	light.flags = REF_INVERSE_DLIGHT | REF_RESTRICT_DLIGHT;
+
+	outCandidate.light = light;
+	outCandidate.peak = hotspot.peak;
+	outCandidate.weight = hotspot.weight * intensity;
+	return true;
+}
+
+static void CollectVirtualLightsForSurface( const bspSurface_t* surf, std::vector<VirtualLightCandidate>& outCandidates,
+	std::vector<LightmapHotspot>& hotspots, std::vector<bool>& hotspotUsed )
+{
+	if ( !surf || surf->lightmapNum < 0 )
+	{
+		return;
+	}
+
+	const srfGeneric_t* surface = reinterpret_cast<const srfGeneric_t*>( surf->data );
+	if ( !surface || !surface->verts || surface->numTriangles <= 0 )
+	{
+		return;
+	}
+
+	float minU = std::numeric_limits<float>::max();
+	float minV = std::numeric_limits<float>::max();
+	float maxU = std::numeric_limits<float>::lowest();
+	float maxV = std::numeric_limits<float>::lowest();
+
+	for ( int i = 0; i < surface->numVerts; ++i )
+	{
+		const srfVert_t& vert = surface->verts[ i ];
+		minU = std::min( minU, vert.lightmap[ 0 ] );
+		maxU = std::max( maxU, vert.lightmap[ 0 ] );
+		minV = std::min( minV, vert.lightmap[ 1 ] );
+		maxV = std::max( maxV, vert.lightmap[ 1 ] );
+	}
+
+	if ( !std::isfinite( minU ) || !std::isfinite( minV ) || !std::isfinite( maxU ) || !std::isfinite( maxV ) )
+	{
+		return;
+	}
+
+	const float padding = 1e-3f;
+	minU = std::clamp( minU - padding, 0.0f, 1.0f );
+	maxU = std::clamp( maxU + padding, 0.0f, 1.0f );
+	minV = std::clamp( minV - padding, 0.0f, 1.0f );
+	maxV = std::clamp( maxV + padding, 0.0f, 1.0f );
+
+	if ( maxU <= minU || maxV <= minV )
+	{
+		return;
+	}
+
+	int perSurfaceLimit = r_virtualSpotLightPerSurface.Get();
+	int added = 0;
+
+	for ( size_t i = 0; i < hotspots.size(); ++i )
+	{
+		if ( hotspotUsed[ i ] )
+		{
+			continue;
+		}
+
+		const LightmapHotspot& hotspot = hotspots[ i ];
+		if ( hotspot.u < minU || hotspot.u > maxU || hotspot.v < minV || hotspot.v > maxV )
+		{
+			continue;
+		}
+
+		VirtualLightCandidate candidate;
+		if ( !BuildCandidateFromHotspot( surf, surface, hotspot, candidate ) )
+		{
+			continue;
+		}
+
+		hotspotUsed[ i ] = true;
+		outCandidates.push_back( candidate );
+		added++;
+
+		if ( perSurfaceLimit >= 0 && added >= perSurfaceLimit )
+		{
+			break;
+		}
+	}
+}
+
+static void R_GenerateVirtualSpotLights()
+{
+	struct LightmapCpuCleanup
+	{
+		~LightmapCpuCleanup()
+		{
+			s_lightmapCpuData.clear();
+			s_lightmapCpuData.shrink_to_fit();
+			s_lightmapHotspots.clear();
+			s_lightmapHotspots.shrink_to_fit();
+		}
+	} cleanup;
+
+	s_worldData.virtualSpotLights.clear();
+
+	if ( !r_virtualSpotLights.Get() )
+	{
+		return;
+	}
+
+	if ( s_lightmapCpuData.empty() )
+	{
+		return;
+	}
+
+	if ( s_lightmapHotspots.size() != s_lightmapCpuData.size() )
+	{
+		s_lightmapHotspots.assign( s_lightmapCpuData.size(), std::vector<LightmapHotspot>() );
+		for ( size_t i = 0; i < s_lightmapCpuData.size(); ++i )
+		{
+			AnalyzeLightmapHotspots( static_cast<int>( i ), s_lightmapCpuData[ i ], s_lightmapHotspots[ i ] );
+		}
+	}
+
+	std::vector<std::vector<bool>> hotspotUsed( s_lightmapHotspots.size() );
+	for ( size_t i = 0; i < s_lightmapHotspots.size(); ++i )
+	{
+		hotspotUsed[ i ].assign( s_lightmapHotspots[ i ].size(), false );
+	}
+
+	std::vector<VirtualLightCandidate> candidates;
+	candidates.reserve( s_worldData.numSurfaces );
+
+	for ( int i = 0; i < s_worldData.numSurfaces; ++i )
+	{
+		const bspSurface_t* surf = &s_worldData.surfaces[ i ];
+		int lightmapIndex = surf->lightmapNum;
+		if ( lightmapIndex < 0 || lightmapIndex >= static_cast<int>( s_lightmapHotspots.size() ) )
+		{
+			continue;
+		}
+
+		CollectVirtualLightsForSurface( surf, candidates, s_lightmapHotspots[ lightmapIndex ], hotspotUsed[ lightmapIndex ] );
+	}
+
+	if ( candidates.empty() )
+	{
+		Log::Warn( "Generated %zu virtual spotlights from lightmaps", s_worldData.virtualSpotLights.size() );
+		return;
+	}
+
+	std::sort( candidates.begin(), candidates.end(), []( const VirtualLightCandidate& a, const VirtualLightCandidate& b )
+	{
+		return a.weight > b.weight;
+	} );
+
+	s_worldData.virtualSpotLights.reserve( candidates.size() );
+	for ( const VirtualLightCandidate& candidate : candidates )
+	{
+		s_worldData.virtualSpotLights.push_back( candidate.light );
+	}
+
+	if ( s_worldData.virtualSpotLights.size() > 1 )
+	{
+		std::sort( s_worldData.virtualSpotLights.begin(), s_worldData.virtualSpotLights.end(),
+			[]( const refLight_t& a, const refLight_t& b )
+			{
+				return VectorLengthSquared( a.origin ) < VectorLengthSquared( b.origin );
+			} );
+	}
+
+	Log::Notice( "Generated %zu virtual spotlights from lightmaps", s_worldData.virtualSpotLights.size() );
+}
+
+} // namespace
 
 /*
 =================
@@ -3557,7 +4187,7 @@ void R_LoadLightGrid( lump_t *l )
 			/* Make sure we don't change the (0, 0, 0) points because those are points in walls,
 			which we'll fill up by interpolating nearby points later */
 			( ambientColor[0] != 0 ||
-			ambientColor[1] != 0 || 
+			ambientColor[1] != 0 ||
 			ambientColor[2] != 0 ) ) {
 			VectorSet( ambientColor, forceAmbient, forceAmbient, forceAmbient );
 		}
@@ -4757,6 +5387,8 @@ void RE_LoadWorldMap( const char *name )
 	R_LoadPlanes( &header->lumps[ LUMP_PLANES ] );
 
 	R_LoadSurfaces( &header->lumps[ LUMP_SURFACES ], &header->lumps[ LUMP_DRAWVERTS ], &header->lumps[ LUMP_DRAWINDEXES ] );
+
+	R_GenerateVirtualSpotLights();
 
 	R_LoadMarksurfaces( &header->lumps[ LUMP_LEAFSURFACES ] );
 

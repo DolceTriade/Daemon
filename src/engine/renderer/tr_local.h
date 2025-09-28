@@ -1752,6 +1752,8 @@ enum
 		const char     *entityParsePoint;
 
 		bool hasSkyboxPortal;
+
+		std::vector<refLight_t> virtualSpotLights;
 	};
 
 #define REFLECTION_CUBEMAP_VERSION 0
@@ -2475,6 +2477,7 @@ struct shadowData_t {
     int numShadowLights;
     refLight_t shadowOnlyLights[MAX_SHADOW_LIGHTS];
     int numShadowOnlyLights;
+    bool sceneLightHasShadows[MAX_REF_LIGHTS];
 };
 
 
@@ -2486,6 +2489,15 @@ struct shadowData_t {
 	** but may read fields that aren't dynamically modified
 	** by the frontend.
 	*/
+	struct LightmapCpuData
+	{
+		int width = 0;
+		int height = 0;
+		std::vector<byte> rgba;
+
+		bool IsValid() const { return width > 0 && height > 0 && rgba.size() == static_cast<size_t>(width * height * 4); }
+	};
+
 	struct trGlobals_t
 	{
 		bool registered; // cleared at shutdown, set at beginRegistration
@@ -3062,6 +3074,8 @@ void GL_CompressedTexSubImage3D( GLenum target, GLint level, GLint xOffset, GLin
 
 	bool   R_GetEntityToken( char *buffer, int size );
 	void R_ProcessLightmap( byte *bytes, int width, int height, int bits ); // Arnout
+	void R_BeginLightmapCpuCapture( std::vector<LightmapCpuData>* target );
+	void R_EndLightmapCpuCapture();
 
 	model_t    *R_AllocModel();
 

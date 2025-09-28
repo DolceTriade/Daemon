@@ -31,8 +31,102 @@ along with Daemon Source Code.  If not, see <http://www.gnu.org/licenses/>.
 #include <vector>
 
 static constexpr int kPointLightFaceCount = 6;
+static Cvar::Cvar<float> r_virtualSpotLightMaxViewDistance(
+	"r_virtualSpotLightMaxViewDistance",
+	"maximum distance from the camera for a virtual spotlight to be considered (0 to disable)",
+	Cvar::NONE,
+	2048.0f );
+
+static inline bool IsVirtualSpotLight(const refLight_t& light) {
+	return (light.flags & REF_INVERSE_DLIGHT) && light.rlType == refLightType_t::RL_PROJ;
+}
+
+static inline bool WithinVirtualSpotlightViewDistance(const refLight_t& light, float maxDist, float maxDistSq, const vec3_t viewOrg) {
+	if (maxDistSq < 0.0f) {
+		return true;
+	}
+
+	vec3_t delta;
+	VectorSubtract(light.origin, viewOrg, delta);
+	float distanceSq = VectorLengthSquared(delta);
+	float allowed = maxDist + std::max(light.radius, 0.0f);
+	if (allowed <= 0.0f) {
+		return false;
+	}
+	return distanceSq <= allowed * allowed;
+}
 
 namespace {
+
+struct ViewPVSInfo {
+	const byte* mask = nullptr;
+	bool enabled = false;
+};
+
+static ViewPVSInfo BuildViewPVSInfo(const vec3_t viewOrg) {
+	ViewPVSInfo info;
+	if (!tr.world || !tr.world->vis) {
+		return info;
+	}
+	if (r_novis && r_novis->integer) {
+		return info;
+	}
+
+	bspNode_t* viewLeaf = R_PointInLeaf(viewOrg);
+	if (!viewLeaf || viewLeaf->cluster < 0) {
+		return info;
+	}
+
+	info.mask = R_ClusterPVS(viewLeaf->cluster);
+	info.enabled = info.mask != nullptr;
+	return info;
+}
+
+static bool LightVisibleFromView(const refLight_t& light, const ViewPVSInfo& viewPVS) {
+	if (!viewPVS.enabled) {
+		return true;
+	}
+
+	if (light.rlType == refLightType_t::RL_DIRECTIONAL) {
+		return true;
+	}
+
+	bspNode_t* lightLeaf = R_PointInLeaf(light.origin);
+	if (!lightLeaf) {
+		return true;
+	}
+
+	if (lightLeaf->area >= 0) {
+		const byte mask = tr.refdef.areamask[lightLeaf->area >> 3];
+		if (mask & (1 << (lightLeaf->area & 7))) {
+			return false;
+		}
+	}
+
+	if (lightLeaf->cluster < 0) {
+		return true;
+	}
+
+	return (viewPVS.mask[lightLeaf->cluster >> 3] & (1 << (lightLeaf->cluster & 7))) != 0;
+}
+
+static int PromoteVisibleLights(refLight_t* lights, int count, const ViewPVSInfo& viewPVS) {
+	if (!viewPVS.enabled || count <= 1) {
+		return count;
+	}
+
+	int insertPos = 0;
+	for (int i = 0; i < count; ++i) {
+		if (LightVisibleFromView(lights[i], viewPVS)) {
+			if (i != insertPos) {
+				std::rotate(lights + insertPos, lights + i, lights + i + 1);
+			}
+			insertPos++;
+		}
+	}
+
+	return insertPos;
+}
 
 struct VirtualLightSample {
 	vec3_t direction;
@@ -114,6 +208,7 @@ void ShadowMapManager::Init(shadowData_t *sd) {
 	memset(&sd->shadowAtlas, 0, sizeof( sd->shadowAtlas));
 	memset(sd->lightShadows, 0, sizeof(sd->lightShadows));
 	sd->numShadowLights = 0;
+	memset(sd->sceneLightHasShadows, 0, sizeof(sd->sceneLightHasShadows));
 
 	// Only initialize if shadow mapping is enabled and material system is active
 	if (!IsShadowMappingEnabled()) {
@@ -135,6 +230,7 @@ void ShadowMapManager::Shutdown(shadowData_t *sd) {
 	sd->shadowAtlas = {};
 	memset(sd->lightShadows, 0, sizeof(sd->lightShadows));
 	sd->numShadowLights = 0;
+	memset(sd->sceneLightHasShadows, 0, sizeof(sd->sceneLightHasShadows));
 
 	Log::Debug("Shadow mapping system shut down");
 }
@@ -149,6 +245,7 @@ void ShadowMapManager::BeginFrame() {
 	// Reset per-frame data
 	sd->numShadowLights = 0;
 	// Don't reset numShadowOnlyLights here - they're set during frontend processing
+	memset(sd->sceneLightHasShadows, 0, sizeof(sd->sceneLightHasShadows));
 
 	// Reset atlas regions for dynamic allocation
 	for (auto& region : sd->shadowAtlas.regions) {
@@ -490,6 +587,67 @@ void ShadowMapManager::GenerateVirtualInverseShadowLights() {
 	tr.refdef.numLights += lightCount;
 }
 
+static int AppendVirtualSpotLightsToRefdef() {
+	if (!tr.world) {
+		return 0;
+	}
+
+	const auto& virtualLights = tr.world->virtualSpotLights;
+	if (virtualLights.empty()) {
+		return 0;
+	}
+
+	int available = MAX_REF_LIGHTS - tr.refdef.numLights;
+	if (available <= 0) {
+		return 0;
+	}
+
+	float maxViewDist = r_virtualSpotLightMaxViewDistance.Get();
+	float maxViewDistSq = ( maxViewDist > 0.0f ) ? maxViewDist * maxViewDist : -1.0f;
+
+	vec3_t viewOrg;
+	VectorCopy( tr.refdef.vieworg, viewOrg );
+
+    struct Candidate {
+        const refLight_t* light;
+        float priority;
+    };
+
+	std::vector<Candidate> candidates;
+	candidates.reserve( virtualLights.size() );
+
+    for ( const refLight_t& srcLight : virtualLights ) {
+        if ( !WithinVirtualSpotlightViewDistance( srcLight, maxViewDist, maxViewDistSq, viewOrg ) ) {
+            continue;
+        }
+
+        vec3_t delta;
+        VectorSubtract( srcLight.origin, viewOrg, delta );
+        float distSq = VectorLengthSquared( delta );
+        float distFactor = ( distSq <= 1.0f ) ? 1.0f : 1.0f / distSq;
+        float radiusFactor = std::max( srcLight.radius, 1.0f );
+        float intensityFactor = std::max( srcLight.scale, 0.1f );
+        float priority = distFactor * radiusFactor * intensityFactor;
+        candidates.push_back( { &srcLight, priority } );
+    }
+
+	if ( candidates.empty() ) {
+		return 0;
+	}
+
+    std::sort( candidates.begin(), candidates.end(), []( const Candidate& a, const Candidate& b ) {
+        return a.priority > b.priority;
+    } );
+
+	int toCopy = std::min( available, static_cast<int>( candidates.size() ) );
+	for ( int i = 0; i < toCopy; ++i ) {
+		tr.refdef.lights[ tr.refdef.numLights + i ] = *candidates[i].light;
+	}
+
+	tr.refdef.numLights += toCopy;
+	return toCopy;
+}
+
 bool ShadowMapManager::SetupLightShadows(refLight_t* light, int sceneIndex) {
     // Frontend builds shadow descriptors in the frontend buffer
     shadowData_t *sd = &backEndData[tr.smpFrame]->shadowData;
@@ -595,6 +753,9 @@ bool ShadowMapManager::SetupLightShadows(refLight_t* light, int sceneIndex) {
 	}
 
     if (setupSuccess) {
+        if (lightShadow->sceneIndex >= 0 && lightShadow->sceneIndex < MAX_REF_LIGHTS) {
+            sd->sceneLightHasShadows[lightShadow->sceneIndex] = true;
+        }
         sd->numShadowLights++;
         Log::Debug("Successfully set up shadow for scene light %d (slot %d), total shadow lights now: %d",
                    sceneIndex, lightIndex, sd->numShadowLights);
@@ -695,9 +856,27 @@ void ShadowMapManager::UpdateShadowMaps() {
     const int maxShadowLights = r_shadowLights.Get();
 
     GenerateVirtualInverseShadowLights();
+	AppendVirtualSpotLightsToRefdef();
 
-    const int sceneNumLights = tr.refdef.numLights;
-    refLight_t* sceneLights = tr.refdef.lights;
+	const int originalSceneLights = tr.refdef.numLights;
+	refLight_t* sceneLights = tr.refdef.lights;
+
+	vec3_t viewOrg;
+	VectorCopy( tr.refdef.vieworg, viewOrg );
+
+	const ViewPVSInfo viewPVS = BuildViewPVSInfo( viewOrg );
+	int sceneNumLights = originalSceneLights;
+	if ( sceneLights && originalSceneLights > 0 ) {
+		const int visibleCount = PromoteVisibleLights( sceneLights, originalSceneLights, viewPVS );
+		if ( visibleCount >= 0 && visibleCount < sceneNumLights ) {
+			tr.refdef.numLights = visibleCount;
+			sceneNumLights = visibleCount;
+			Log::Debug("PVS visibility culled %d lights (kept %d of %d)",
+			           originalSceneLights - sceneNumLights,
+			           sceneNumLights,
+			           originalSceneLights);
+		}
+	}
 
     Log::Debug("Updating shadow maps from scene lights: %d available, max shadowed: %d", sceneNumLights, maxShadowLights);
 
@@ -785,10 +964,11 @@ void ShadowMapManager::UpdateShadowMaps() {
                   });
     }
 
-    Log::Debug("Updated shadow maps: %d shadowed lights prepared from %d scene lights", sd->numShadowLights, sceneNumLights);
+	Log::Debug("Updated shadow maps: %d shadowed lights prepared from %d visible scene lights (of %d total)",
+	          sd->numShadowLights, sceneNumLights, originalSceneLights);
 
-    // Clear any legacy shadow-only lights; they are not part of the tiled light list
-    sd->numShadowOnlyLights = 0;
+	// Clear any legacy shadow-only lights; they are not part of the tiled light list
+	sd->numShadowOnlyLights = 0;
 }
 
 void ShadowMapManager::RenderShadowMaps() {
