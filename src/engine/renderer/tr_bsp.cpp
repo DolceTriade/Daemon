@@ -66,6 +66,8 @@ static Cvar::Cvar<float> r_virtualSpotLightNormalOffset( "r_virtualSpotLightNorm
 static Cvar::Cvar<float> r_virtualSpotLightMinRadius( "r_virtualSpotLightMinRadius", "minimum footprint radius in world units for a derived spotlight", Cvar::NONE, 8.0f );
 static Cvar::Range<Cvar::Cvar<float>> r_virtualSpotLightMinHalfAngle( "r_virtualSpotLightMinHalfAngle", "lower clamp for the derived spotlight half angle in degrees", Cvar::NONE, 8.0f, 1.0f, 89.0f );
 static Cvar::Range<Cvar::Cvar<float>> r_virtualSpotLightMaxHalfAngle( "r_virtualSpotLightMaxHalfAngle", "upper clamp for the derived spotlight half angle in degrees", Cvar::NONE, 75.0f, 1.0f, 89.0f );
+static Cvar::Range<Cvar::Cvar<float>> r_virtualSpotLightMergeDistance( "r_virtualSpotLightMergeDistance", "distance threshold for merging nearby virtual spotlights (world units)", Cvar::NONE, 48.0f, 0.0f, 512.0f );
+static Cvar::Range<Cvar::Cvar<float>> r_virtualSpotLightFloorNormalDot( "r_virtualSpotLightFloorNormalDot", "minimum dot(N, up) to classify a surface as floor (skip light generation)", Cvar::NONE, 0.6f, 0.0f, 1.0f );
 
 static std::vector<LightmapCpuData> s_lightmapCpuData;
 static std::vector<std::vector<LightmapHotspot>> s_lightmapHotspots;
@@ -1377,6 +1379,126 @@ struct VirtualLightCandidate
 	float peak = 0.0f;
 };
 
+struct MergedVirtualSpotlight
+{
+	refLight_t light;
+	vec3_t originSum;
+	vec3_t dirSum;
+	vec3_t tangentSum;
+	vec3_t colorSum;
+	float dirLenSum = 0.0f;
+	float weightSum = 0.0f;
+	float tanHalfAngleMax = 0.0f;
+};
+
+static void FinalizeMergedSpotlight( MergedVirtualSpotlight& cluster );
+
+static void InitializeMergedSpotlight( MergedVirtualSpotlight& cluster, const refLight_t& src )
+{
+	cluster.light = src;
+	cluster.light.radius = 0.0f;
+	cluster.light.scale = 0.0f;
+	VectorClear( cluster.originSum );
+	VectorClear( cluster.dirSum );
+	VectorClear( cluster.tangentSum );
+	VectorClear( cluster.colorSum );
+	cluster.dirLenSum = 0.0f;
+	cluster.weightSum = 0.0f;
+	cluster.tanHalfAngleMax = 0.0f;
+}
+
+static void AccumulateMergedSpotlight( MergedVirtualSpotlight& cluster, const refLight_t& light )
+{
+	float weight = std::max( light.scale, 0.001f );
+	vec3_t dir;
+	VectorCopy( light.projTarget, dir );
+	float dirLen = VectorLength( dir );
+	vec3_t dirNorm;
+	if ( dirLen > 1e-4f )
+	{
+		VectorCopy( dir, dirNorm );
+		VectorNormalize( dirNorm );
+	}
+	else
+	{
+		dirLen = 1.0f;
+		VectorSet( dirNorm, 0.0f, 0.0f, -1.0f );
+	}
+
+	vec3_t tangent;
+	VectorCopy( light.projUp, tangent );
+	float tangentLen = VectorLength( tangent );
+	float tanHalf = 0.1f;
+	if ( tangentLen > 1e-6f )
+	{
+		tanHalf = tangentLen / std::max( dirLen, 1e-4f );
+		VectorScale( tangent, 1.0f / tangentLen, tangent );
+	}
+	else
+	{
+		PerpendicularVector( tangent, dirNorm );
+		VectorNormalize( tangent );
+	}
+
+	VectorMA( cluster.originSum, weight, light.origin, cluster.originSum );
+	VectorMA( cluster.dirSum, weight, dirNorm, cluster.dirSum );
+	VectorMA( cluster.tangentSum, weight, tangent, cluster.tangentSum );
+	VectorMA( cluster.colorSum, weight, light.color, cluster.colorSum );
+	cluster.dirLenSum += weight * dirLen;
+	cluster.weightSum += weight;
+	cluster.tanHalfAngleMax = std::max( cluster.tanHalfAngleMax, tanHalf );
+	cluster.light.radius += light.radius;
+	cluster.light.scale += light.scale;
+}
+
+static void FinalizeMergedSpotlight( MergedVirtualSpotlight& cluster )
+{
+	if ( cluster.weightSum <= 0.0f )
+	{
+		return;
+	}
+
+	float invWeight = 1.0f / cluster.weightSum;
+	VectorScale( cluster.originSum, invWeight, cluster.light.origin );
+	vec3_t dirNorm;
+	VectorCopy( cluster.dirSum, dirNorm );
+	if ( VectorNormalize( dirNorm ) == 0.0f )
+	{
+		VectorSet( dirNorm, 0.0f, 0.0f, -1.0f );
+	}
+
+	float avgDirLen = cluster.dirLenSum / cluster.weightSum;
+	if ( !std::isfinite( avgDirLen ) || avgDirLen <= 1e-4f )
+	{
+		avgDirLen = 16.0f;
+	}
+
+	vec3_t projTarget;
+	VectorScale( dirNorm, avgDirLen, projTarget );
+	VectorCopy( projTarget, cluster.light.projTarget );
+
+	vec3_t tangent;
+	VectorCopy( cluster.tangentSum, tangent );
+	float projection = DotProduct( tangent, dirNorm );
+	VectorMA( tangent, -projection, dirNorm, tangent );
+	if ( VectorNormalize( tangent ) == 0.0f )
+	{
+		PerpendicularVector( tangent, dirNorm );
+		VectorNormalize( tangent );
+	}
+
+	float upLen = avgDirLen * std::max( cluster.tanHalfAngleMax, 0.05f );
+	VectorScale( tangent, upLen, cluster.light.projUp );
+
+	vec3_t averagedColor;
+	VectorScale( cluster.colorSum, invWeight, averagedColor );
+	cluster.light.color[ 0 ] = std::clamp( averagedColor[ 0 ], 0.0f, 1.0f );
+	cluster.light.color[ 1 ] = std::clamp( averagedColor[ 1 ], 0.0f, 1.0f );
+	cluster.light.color[ 2 ] = std::clamp( averagedColor[ 2 ], 0.0f, 1.0f );
+	cluster.light.radius = std::max( cluster.light.radius, avgDirLen );
+	cluster.light.scale = std::max( cluster.light.scale, 0.0f );
+}
+
 static float ComputeLuminance( const byte* rgba )
 {
 	return std::max( { rgba[ 0 ], rgba[ 1 ], rgba[ 2 ] } ) / 255.0f;
@@ -1693,12 +1815,19 @@ static bool BuildCandidateFromHotspot( const bspSurface_t* surf, const srfGeneri
 		return false;
 	}
 
+	const vec3_t worldUp = { 0.0f, 0.0f, 1.0f };
+	float dotUp = DotProduct( sampleNormal, worldUp );
+	if ( dotUp >= r_virtualSpotLightFloorNormalDot.Get() )
+	{
+		return false;
+	}
+
 	float offsetDist = std::max( r_virtualSpotLightNormalOffset.Get(), 1.0f );
 	vec3_t origin;
 	VectorMA( samplePos, offsetDist, sampleNormal, origin );
 
 	vec3_t projTarget;
-	VectorSubtract( samplePos, origin, projTarget );
+	VectorSubtract( origin, samplePos, projTarget );
 	float targetLength = VectorLength( projTarget );
 	if ( targetLength < 1e-3f )
 	{
@@ -1743,8 +1872,8 @@ static bool BuildCandidateFromHotspot( const bspSurface_t* surf, const srfGeneri
 	light.rlType = refLightType_t::RL_PROJ;
 	VectorCopy( origin, light.origin );
 	VectorCopy( color, light.color );
-	VectorCopy( projTarget, light.projUp );
-	VectorCopy( projUp, light.projTarget );
+	VectorCopy( projTarget, light.projTarget );
+	VectorCopy( projUp, light.projUp );
 	light.radius = targetLength + worldRadius;
 	light.scale = intensity * hotspot.weight * r_virtualSpotLightIntensityScale.Get();
 	light.flags = REF_INVERSE_DLIGHT | REF_RESTRICT_DLIGHT;
@@ -1898,10 +2027,43 @@ static void R_GenerateVirtualSpotLights()
 		return a.weight > b.weight;
 	} );
 
-	s_worldData.virtualSpotLights.reserve( candidates.size() );
+	float mergeDistance = r_virtualSpotLightMergeDistance.Get();
+	float mergeDistSq = ( mergeDistance > 0.0f ) ? mergeDistance * mergeDistance : -1.0f;
+	std::vector<MergedVirtualSpotlight> merged;
+	merged.reserve( candidates.size() );
+
 	for ( const VirtualLightCandidate& candidate : candidates )
 	{
-		s_worldData.virtualSpotLights.push_back( candidate.light );
+		bool mergedExisting = false;
+		if ( mergeDistSq >= 0.0f )
+		{
+			for ( MergedVirtualSpotlight& cluster : merged )
+			{
+				if ( DistanceSquared( candidate.light.origin, cluster.light.origin ) <= mergeDistSq )
+				{
+					AccumulateMergedSpotlight( cluster, candidate.light );
+					FinalizeMergedSpotlight( cluster );
+					mergedExisting = true;
+					break;
+				}
+			}
+		}
+
+		if ( !mergedExisting )
+		{
+			MergedVirtualSpotlight cluster;
+			InitializeMergedSpotlight( cluster, candidate.light );
+			AccumulateMergedSpotlight( cluster, candidate.light );
+			FinalizeMergedSpotlight( cluster );
+			merged.push_back( cluster );
+		}
+	}
+
+	s_worldData.virtualSpotLights.reserve( merged.size() );
+	for ( MergedVirtualSpotlight& cluster : merged )
+	{
+		FinalizeMergedSpotlight( cluster );
+		s_worldData.virtualSpotLights.push_back( cluster.light );
 	}
 
 	if ( s_worldData.virtualSpotLights.size() > 1 )
