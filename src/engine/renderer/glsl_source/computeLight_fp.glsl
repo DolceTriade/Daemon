@@ -201,7 +201,7 @@ void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 vi
 		attenuation = 1.0 / ( t * t );
 		L = normalize( L );
 
-		if( dot( L, light.direction ) <= light.angle ) {
+		if( dot( -L, light.direction ) <= light.angle ) {
 			attenuation = 0.0;
 		}
 	} else if( lightType == 2 ) {

@@ -28,6 +28,7 @@ along with Daemon Source Code.  If not, see <http://www.gnu.org/licenses/>.
 #include "Material.h"
 #include "gl_shader.h"
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 static constexpr int kPointLightFaceCount = 6;
@@ -180,6 +181,40 @@ static void GetCubeFaceBasis(int face, vec3_t forward, vec3_t up) {
 
     VectorCopy(forwardDirs[face], forward);
     VectorCopy(upDirs[face], up);
+}
+
+static float R_ComputeEffectiveLightRange(const refLight_t* light) {
+	const float baseRadius = std::max(light->radius, 1.0f);
+	if (baseRadius <= 0.0f) {
+		return 0.0f;
+	}
+
+	float threshold = std::max(r_lightFalloffThreshold.Get(), 1e-6f);
+	float maxColor = std::max(light->color[0], std::max(light->color[1], light->color[2]));
+	maxColor *= 4.0f * light->scale;
+
+	if (maxColor <= 0.0f) {
+		return baseRadius;
+	}
+
+	float ratio = threshold / maxColor;
+	if (ratio >= 1.0f) {
+		return baseRadius;
+	}
+
+	ratio = std::max(ratio, 1e-6f);
+	float powTerm = std::pow(1.0f / ratio, 0.25f);
+	if (!std::isfinite(powTerm) || powTerm <= 1.0f) {
+		return baseRadius;
+	}
+
+	const float attenuationSlope = 2.57f;
+	float distance = baseRadius * (powTerm - 1.0f) / attenuationSlope;
+	if (!std::isfinite(distance) || distance <= 0.0f) {
+		return baseRadius;
+	}
+
+	return std::max(baseRadius, distance);
 }
 
 // Global shadow map manager instance
@@ -1581,13 +1616,15 @@ void ShadowMapManager::SetupPointLightMatrix(refLight_t* light, shadowMap_t* sha
 	float aspect = 1.0f;
 
 	const float radius = std::max(light->radius, 1.0f);
+	float effectiveRange = std::max(radius, R_ComputeEffectiveLightRange(light));
 	const float minNear = 1.0f;
 	const float nearRatio = 0.04f; // push the near plane out to ~4% of the light radius
 	float nearPlane = std::max(minNear, radius * nearRatio);
 	// Avoid collapsing the frustum if the light radius is very small.
 	float maxReasonableNear = std::max(0.5f, radius * 0.5f);
 	nearPlane = std::min(nearPlane, maxReasonableNear);
-	float farPlane = std::max(radius, nearPlane + 32.0f);
+	nearPlane = std::min(nearPlane, effectiveRange * 0.5f);
+	float farPlane = std::max(effectiveRange, nearPlane + std::max(32.0f, 0.25f * effectiveRange));
 
 	// Convert FOV to projection bounds
 	float top = nearPlane * tanf(DEG2RAD(fov * 0.5f));
@@ -1597,8 +1634,8 @@ void ShadowMapManager::SetupPointLightMatrix(refLight_t* light, shadowMap_t* sha
 
 	MatrixPerspectiveProjection(projectionMatrix, left, right, bottom, top, nearPlane, farPlane);
 
-	Log::Debug("Set up point light matrix, position=(%.1f, %.1f, %.1f) radius=%.1f",
-	          lightPos[0], lightPos[1], lightPos[2], light->radius);
+	Log::Debug("Set up point light matrix, position=(%.1f, %.1f, %.1f) radius=%.1f, effectiveRange=%.1f",
+	          lightPos[0], lightPos[1], lightPos[2], light->radius, effectiveRange);
 }
 
 void ShadowMapManager::SetupSpotLightMatrix(refLight_t* light, shadowMap_t* shadowMap, matrix_t viewMatrix, matrix_t projectionMatrix) {
@@ -1625,24 +1662,27 @@ void ShadowMapManager::SetupSpotLightMatrix(refLight_t* light, shadowMap_t* shad
 	float aspect = 1.0f;
 
 	const float radius = std::max(light->radius, 1.0f);
+	float effectiveRange = std::max(radius, R_ComputeEffectiveLightRange(light));
 	const float minNear = 1.0f;
 	const float nearRatio = 0.04f; // push the near plane out to ~4% of the light radius
 	float nearPlane = std::max(minNear, radius * nearRatio);
 	// Avoid collapsing the frustum if the light radius is very small.
 	float maxReasonableNear = std::max(0.5f, radius * 0.5f);
 	nearPlane = std::min(nearPlane, maxReasonableNear);
-	float farPlane = std::max(radius, nearPlane + 32.0f);
+	nearPlane = std::min(nearPlane, effectiveRange * 0.5f);
+	float farPlane = std::max(effectiveRange, nearPlane + std::max(32.0f, 0.25f * effectiveRange));
 
 	// Convert FOV to projection bounds
-	float top = nearPlane * tanf(fov);
+	float safeFov = (fov > 0.0f) ? fov : DEG2RAD(89.0f);
+	float top = nearPlane * tanf(safeFov);
 	float bottom = -top;
 	float right = top * aspect;
 	float left = -right;
 
 	MatrixPerspectiveProjection(projectionMatrix, left, right, bottom, top, nearPlane, farPlane);
 
-	Log::Debug("Set up spot light matrix, position=(%.1f, %.1f, %.1f) direction=(%.2f, %.2f, %.2f)",
-	          lightPos[0], lightPos[1], lightPos[2], lightDir[0], lightDir[1], lightDir[2]);
+	Log::Debug("Set up spot light matrix, position=(%.1f, %.1f, %.1f) direction=(%.2f, %.2f, %.2f) effectiveRange=%.1f",
+	          lightPos[0], lightPos[1], lightPos[2], lightDir[0], lightDir[1], lightDir[2], effectiveRange);
 }
 
 //

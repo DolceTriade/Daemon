@@ -113,8 +113,13 @@ void main() {
 	vec4 plane3 = vec4( normalize( cross( topright, topleft ) ), 0 );
 	vec4 plane4 = vec4( normalize( cross( topleft, bottomleft ) ), 0 );
 
-	// Expand tile frustum by pushing side planes inward
-	float margin = 16.0; // units in view space
+	// Expand tile frustum by pushing side planes inward. Use a depth-aware margin so
+	// nearby tiles remain tight while distant ones get additional slack.
+	float tileMinDepth = max( minmax.x, r_zNear );
+	float tileMaxDepth = max( minmax.y, tileMinDepth + 1.0 );
+	float depthSpan = tileMaxDepth - tileMinDepth;
+	float margin = 48.0 + tileMinDepth * 0.1 + depthSpan * 0.5;
+	margin = clamp( margin, 48.0, 1536.0 );
 	plane1.w -= margin;
 	plane2.w -= margin;
 	plane3.w -= margin;
@@ -147,7 +152,8 @@ void main() {
 		}
 
 		vec3 center = ( u_ModelMatrix * vec4( l.center, 1.0 ) ).xyz;
-		float radius = max( 2.0 * l.radius, 2.0 * 32.0 ); // Avoid artifacts with weak light sources
+		float inflatedRadius = max( l.radius * 1.35, 48.0 );
+		float radius = max( 2.0 * inflatedRadius, 2.0 * 32.0 );
 
 		// todo: better checks for spotlights
 		lightOutsidePlane( plane1, center, radius );

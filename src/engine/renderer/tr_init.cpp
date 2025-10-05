@@ -142,6 +142,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 		0.25f, 0.0f, 1.0f );
 	Cvar::Range<Cvar::Cvar<float>> r_shadowVSMBlur( "r_shadowVSMBlur", "VSM blur radius", Cvar::NONE,
 		2.0f, 0.0f, 8.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_lightFalloffThreshold( "r_lightFalloffThreshold", "minimum per-channel light contribution before shadows fade out", Cvar::NONE,
+		1.0f / 256.0f, 1e-6f, 1.0f );
 	Cvar::Range<Cvar::Cvar<int>> r_inverseShadowLights( "r_inverseShadowLights", "number of virtual inverse shadow lights", Cvar::NONE,
 		3, 0, 8 );
 	Cvar::Range<Cvar::Cvar<float>> r_inverseShadowSampleRadius( "r_inverseShadowSampleRadius", "radius around the camera used to sample the light grid for virtual inverse lights", Cvar::NONE,

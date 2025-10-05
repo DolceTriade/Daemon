@@ -1999,124 +1999,6 @@ static void RB_RenderDebugUtils()
 		}
 	}
 
-	if ( r_debugShowDynamicLights.Get() && backEnd.refdef.numLights > 0 )
-	{
-		gl_genericShader->SetVertexSkinning( false );
-		gl_genericShader->SetVertexAnimation( false );
-		gl_genericShader->SetTCGenEnvironment( false );
-		gl_genericShader->SetTCGenLightmap( false );
-		gl_genericShader->SetDepthFade( false );
-		gl_genericShader->BindProgram( 0 );
-
-		gl_genericShader->SetUniform_AlphaTest( GLS_ATEST_NONE );
-		SetUniform_ColorModulateColorGen( gl_genericShader, colorGen_t::CGEN_VERTEX, alphaGen_t::AGEN_VERTEX );
-		SetUniform_Color( gl_genericShader, Color::Black );
-
-		GL_State( GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_DEPTHTEST_DISABLE );
-		GL_Cull( cullType_t::CT_TWO_SIDED );
-
-		backEnd.orientation = backEnd.viewParms.world;
-		GL_LoadModelViewMatrix( backEnd.orientation.modelViewMatrix );
-		gl_genericShader->SetUniform_ModelViewProjectionMatrix( glState.modelViewProjectionMatrix[ glState.stackIndex ] );
-
-		gl_genericShader->SetUniform_ColorMapBindless(
-			GL_BindToTMU( 0, tr.whiteImage )
-		);
-		gl_genericShader->SetUniform_TextureMatrix( matrixIdentity );
-
-		Tess_Begin( Tess_StageIteratorDebug, nullptr, true, -1, 0 );
-		GL_CheckErrors();
-
-		const refLight_t* lights = backEnd.refdef.lights;
-		for ( int i = 0; i < backEnd.refdef.numLights; ++i )
-		{
-			const refLight_t& light = lights[ i ];
-			if ( light.rlType >= refLightType_t::RL_MAX_REF_LIGHT_TYPE )
-			{
-				continue;
-			}
-			if ( light.rlType == refLightType_t::RL_DIRECTIONAL ) {
-				continue;
-			}
-
-			vec3_t baseOrigin;
-			VectorCopy( light.origin, baseOrigin );
-
-			float length = light.radius;
-			if ( length <= 0.0f )
-			{
-				length = 16.0f;
-			}
-
-			auto addArrow = [&]( const float dirInput[3], const Color::Color& arrowColor )
-			{
-				vec3_t dir;
-				VectorCopy( dirInput, dir );
-				if ( VectorNormalize( dir ) == 0.0f )
-				{
-					VectorSet( dir, 0.0f, 0.0f, 1.0f );
-				}
-
-				vec3_t tip;
-				VectorMA( baseOrigin, length, dir, tip );
-
-				vec3_t localTmp;
-				vec3_t localTmp2;
-				vec3_t localTmp3;
-				PerpendicularVector( localTmp, dir );
-				VectorScale( localTmp, length * 0.2f, localTmp2 );
-				VectorMA( localTmp2, length * 0.3f, dir, localTmp2 );
-
-				vec4_t localVerts[ 4 ];
-				for ( int k = 0; k < 3; k++ )
-				{
-					RotatePointAroundVector( localTmp3, dir, localTmp2, k * 120.0f );
-					VectorAdd( localTmp3, baseOrigin, localTmp3 );
-					VectorCopy( localTmp3, localVerts[ k ] );
-					localVerts[ k ][ 3 ] = 1.0f;
-				}
-
-				VectorCopy( baseOrigin, localVerts[ 3 ] );
-				localVerts[ 3 ][ 3 ] = 1.0f;
-				Tess_AddTetrahedron( localVerts, arrowColor );
-
-
-				VectorCopy( tip, localVerts[ 3 ] );
-				localVerts[ 3 ][ 3 ] = 1.0f;
-
-				Tess_AddTetrahedron( localVerts, arrowColor );
-			};
-
-			Color::Color color;
-			switch ( light.rlType )
-			{
-				case refLightType_t::RL_PROJ:
-					color = Color::LtGrey;
-					addArrow( light.projTarget, color );
-					break;
-				default:
-					color = Color::MdGrey;
-				{
-					static const vec3_t kOmniDirs[ 6 ] = {
-						{ 1.0f, 0.0f, 0.0f },
-						{ -1.0f, 0.0f, 0.0f },
-						{ 0.0f, 1.0f, 0.0f },
-						{ 0.0f, -1.0f, 0.0f },
-						{ 0.0f, 0.0f, 1.0f },
-						{ 0.0f, 0.0f, -1.0f }
-					};
-					for ( int dirIndex = 0; dirIndex < 6; ++dirIndex )
-					{
-						addArrow( kOmniDirs[ dirIndex ], color );
-					}
-				}
-					break;
-			}
-		}
-
-		Tess_End();
-	}
-
 	// GLSL shader isn't built when reflection mapping is disabled.
 	if ( r_showCubeProbes.Get() && glConfig.reflectionMapping &&
 	     !( backEnd.refdef.rdflags & ( RDF_NOWORLDMODEL | RDF_NOCUBEMAP ) ) )
@@ -2290,8 +2172,6 @@ static void RB_RenderDebugUtils()
 		GL_State( GLS_DEFAULT );
 		GL_Cull( cullType_t::CT_TWO_SIDED );
 
-		// set uniforms
-
 		// set up the transformation matrix
 		backEnd.orientation = backEnd.viewParms.world;
 		GL_LoadModelViewMatrix( backEnd.orientation.modelViewMatrix );
@@ -2358,6 +2238,126 @@ static void RB_RenderDebugUtils()
 
 		Tess_End();
 	}
+
+	if ( r_debugShowDynamicLights.Get() && backEnd.refdef.numLights > 0 )
+	{
+		gl_genericShader->SetVertexSkinning( false );
+		gl_genericShader->SetVertexAnimation( false );
+		gl_genericShader->SetTCGenEnvironment( false );
+		gl_genericShader->SetTCGenLightmap( false );
+		gl_genericShader->SetDepthFade( false );
+		gl_genericShader->BindProgram( 0 );
+
+		// set uniforms
+		gl_genericShader->SetUniform_AlphaTest( GLS_ATEST_NONE );
+		SetUniform_ColorModulateColorGen( gl_genericShader, colorGen_t::CGEN_VERTEX, alphaGen_t::AGEN_VERTEX );
+		SetUniform_Color( gl_genericShader, Color::Black );
+
+		GL_State( GLS_DEFAULT );
+		GL_Cull( cullType_t::CT_TWO_SIDED );
+
+		backEnd.orientation = backEnd.viewParms.world;
+		GL_LoadModelViewMatrix( backEnd.orientation.modelViewMatrix );
+		gl_genericShader->SetUniform_ModelViewProjectionMatrix( glState.modelViewProjectionMatrix[ glState.stackIndex ] );
+
+		gl_genericShader->SetUniform_ColorMapBindless(
+			GL_BindToTMU( 0, tr.whiteImage )
+		);
+		gl_genericShader->SetUniform_TextureMatrix( matrixIdentity );
+
+		Tess_Begin( Tess_StageIteratorDebug, nullptr, true, -1, 0 );
+		GL_CheckErrors();
+
+		const refLight_t* lights = backEnd.refdef.lights;
+		for ( int i = 0; i < backEnd.refdef.numLights; ++i )
+		{
+			const refLight_t& light = lights[ i ];
+			if ( light.rlType >= refLightType_t::RL_MAX_REF_LIGHT_TYPE )
+			{
+				continue;
+			}
+			if ( light.rlType == refLightType_t::RL_DIRECTIONAL ) {
+				continue;
+			}
+
+			vec3_t baseOrigin;
+			VectorCopy( light.origin, baseOrigin );
+
+			float length = light.radius;
+			if ( length <= 0.0f )
+			{
+				length = 16.0f;
+			}
+
+			auto addArrow = [&]( const float dirInput[3], const Color::Color& arrowColor )
+			{
+				vec3_t dir;
+				VectorCopy( dirInput, dir );
+				if ( VectorNormalize( dir ) == 0.0f )
+				{
+					VectorSet( dir, 0.0f, 0.0f, 1.0f );
+				}
+
+				vec3_t tip;
+				VectorMA( baseOrigin, length, dir, tip );
+
+				vec3_t localTmp;
+				vec3_t localTmp2;
+				vec3_t localTmp3;
+				PerpendicularVector( localTmp, dir );
+				VectorScale( localTmp, length * 0.2f, localTmp2 );
+				VectorMA( localTmp2, length * 0.3f, dir, localTmp2 );
+
+				vec4_t localVerts[ 4 ];
+				for ( int k = 0; k < 3; k++ )
+				{
+					RotatePointAroundVector( localTmp3, dir, localTmp2, k * 120.0f );
+					VectorAdd( localTmp3, baseOrigin, localTmp3 );
+					VectorCopy( localTmp3, localVerts[ k ] );
+					localVerts[ k ][ 3 ] = 1.0f;
+				}
+
+				VectorCopy( baseOrigin, localVerts[ 3 ] );
+				localVerts[ 3 ][ 3 ] = 1.0f;
+				Tess_AddTetrahedron( localVerts, arrowColor );
+
+
+				VectorCopy( tip, localVerts[ 3 ] );
+				localVerts[ 3 ][ 3 ] = 1.0f;
+
+				Tess_AddTetrahedron( localVerts, arrowColor );
+			};
+
+			Color::Color color;
+			switch ( light.rlType )
+			{
+				case refLightType_t::RL_PROJ:
+					color = Color::LtGrey;
+					addArrow( light.projTarget, color );
+					break;
+				default:
+					color = Color::MdGrey;
+				{
+					static const vec3_t kOmniDirs[ 6 ] = {
+						{ 1.0f, 0.0f, 0.0f },
+						{ -1.0f, 0.0f, 0.0f },
+						{ 0.0f, 1.0f, 0.0f },
+						{ 0.0f, -1.0f, 0.0f },
+						{ 0.0f, 0.0f, 1.0f },
+						{ 0.0f, 0.0f, -1.0f }
+					};
+					for ( int dirIndex = 0; dirIndex < 6; ++dirIndex )
+					{
+						addArrow( kOmniDirs[ dirIndex ], color );
+					}
+				}
+					break;
+			}
+		}
+
+		Tess_End();
+	}
+
 
 	if ( r_showBspNodes->integer )
 	{

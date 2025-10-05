@@ -2821,6 +2821,7 @@ extern Cvar::Range<Cvar::Cvar<float>> r_shadowBias;
 extern Cvar::Range<Cvar::Cvar<float>> r_shadowESMExponent;
 extern Cvar::Range<Cvar::Cvar<float>> r_shadowInverseESMScale;
 extern Cvar::Range<Cvar::Cvar<float>> r_shadowVSMBlur;
+extern Cvar::Range<Cvar::Cvar<float>> r_lightFalloffThreshold;
 extern Cvar::Range<Cvar::Cvar<int>> r_inverseShadowLights;
 extern Cvar::Range<Cvar::Cvar<float>> r_inverseShadowSampleRadius;
 extern Cvar::Range<Cvar::Cvar<float>> r_inverseShadowIntensityScale;
