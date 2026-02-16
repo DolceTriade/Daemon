@@ -706,7 +706,11 @@ bool ShadowMapManager::SetupLightShadows(refLight_t* light, int sceneIndex) {
 
 	// Determine number of cascades based on light type
 	if (light->rlType == refLightType_t::RL_DIRECTIONAL) {
-		lightShadow->numCascades = r_shadowCascades.Get();
+		if (light->flags & REF_INVERSE_DLIGHT) {
+			lightShadow->numCascades = r_inverseGlobalCascades.Get();
+		} else {
+			lightShadow->numCascades = r_shadowCascades.Get();
+		}
 		Log::Debug("Directional light detected, using %d cascades. Direction: (%.2f, %.2f, %.2f)",
 		          lightShadow->numCascades,
 		          light->projTarget[0], light->projTarget[1], light->projTarget[2]);
@@ -890,8 +894,11 @@ void ShadowMapManager::UpdateShadowMaps() {
     // indices match the light buffer order used by tiling and shading.
     const int maxShadowLights = r_shadowLights.Get();
 
-    GenerateVirtualInverseShadowLights();
-	AppendVirtualSpotLightsToRefdef();
+    bool disableVirtual = r_inverseGlobalLight.Get() && r_inverseGlobalDisableVirtual.Get();
+    if (!disableVirtual) {
+        GenerateVirtualInverseShadowLights();
+		AppendVirtualSpotLightsToRefdef();
+    }
 
 	const int originalSceneLights = tr.refdef.numLights;
 	refLight_t* sceneLights = tr.refdef.lights;
@@ -921,32 +928,58 @@ void ShadowMapManager::UpdateShadowMaps() {
     int atlasCapacity = tilesPerDim * tilesPerDim;
     int usedTiles = sd->shadowAtlas.allocatedRegions; // reset earlier in BeginFrame
 
-    int lightsProcessed = 0;
+    int prioritizedDirectionalIndex = -1;
 
-    // Pass 0: always try to shadow the first directional light (sun) first so it never
+    // Pass 0: always try to shadow the first inverse directional light first (if present),
+    // otherwise the first directional light (sun), so it never
     // loses atlas space to dynamic lights when capacity is tight.
     for (int i = 0; i < sceneNumLights && sd->numShadowLights < maxShadowLights; i++) {
         refLight_t* light = &sceneLights[i];
         if (light->rlType != refLightType_t::RL_DIRECTIONAL) continue;
+        if ((light->flags & REF_INVERSE_DLIGHT) == 0) continue;
 
-        Log::Debug("(Priority) Setting up shadow for directional scene light %d", i);
+        Log::Debug("(Priority) Setting up shadow for inverse directional scene light %d", i);
 
-        int requiredTiles = r_shadowCascades.Get();
+        int requiredTiles = r_inverseGlobalCascades.Get();
         if (requiredTiles < 1) requiredTiles = 1;
 
         if (usedTiles + requiredTiles > atlasCapacity) {
-            Log::Warn("Skipping sun light %d: not enough atlas space (need %d tiles, have %d/%d)",
+            Log::Warn("Skipping inverse directional light %d: not enough atlas space (need %d tiles, have %d/%d)",
                       i, requiredTiles, atlasCapacity - usedTiles, atlasCapacity);
-            break; // no point continuing if even sun doesn't fit
+            break; // no point continuing if the top priority light doesn't fit
         }
 
         if (SetupLightShadows(light, i)) {
-            Log::Debug("Successfully set up shadow for directional light %d", i);
-            lightsProcessed++;
+            Log::Debug("Successfully set up shadow for inverse directional light %d", i);
             usedTiles += requiredTiles;
+            prioritizedDirectionalIndex = i;
         }
-        // Whether success or not, only prioritize the first directional; then continue
+        // Whether success or not, only prioritize the first inverse directional; then continue
         break;
+    }
+    if (prioritizedDirectionalIndex < 0) {
+        for (int i = 0; i < sceneNumLights && sd->numShadowLights < maxShadowLights; i++) {
+            refLight_t* light = &sceneLights[i];
+            if (light->rlType != refLightType_t::RL_DIRECTIONAL) continue;
+
+            Log::Debug("(Priority fallback) Setting up shadow for directional scene light %d", i);
+
+            int requiredTiles = r_shadowCascades.Get();
+            if (requiredTiles < 1) requiredTiles = 1;
+
+            if (usedTiles + requiredTiles > atlasCapacity) {
+                Log::Warn("Skipping directional light %d: not enough atlas space (need %d tiles, have %d/%d)",
+                          i, requiredTiles, atlasCapacity - usedTiles, atlasCapacity);
+                break;
+            }
+
+            if (SetupLightShadows(light, i)) {
+                Log::Debug("Successfully set up shadow for directional light %d", i);
+                usedTiles += requiredTiles;
+                prioritizedDirectionalIndex = i;
+            }
+            break;
+        }
     }
 
 	// Pass 1: process remaining lights in order, skipping any directional already handled.
@@ -955,15 +988,15 @@ void ShadowMapManager::UpdateShadowMaps() {
         Log::Debug("Setting up shadow for scene light %d at (%.1f, %.1f, %.1f)",
                    i, light->origin[0], light->origin[1], light->origin[2]);
 
-        // Skip additional directional lights in this pass (first one handled above)
-        if (light->rlType == refLightType_t::RL_DIRECTIONAL && lightsProcessed > 0) {
+        // Skip the prioritized directional light in this pass.
+        if (light->rlType == refLightType_t::RL_DIRECTIONAL && i == prioritizedDirectionalIndex) {
             continue;
         }
 
         // Tiles required for this light
 		int requiredTiles;
 		if (light->rlType == refLightType_t::RL_DIRECTIONAL) {
-			requiredTiles = r_shadowCascades.Get();
+			requiredTiles = (light->flags & REF_INVERSE_DLIGHT) ? r_inverseGlobalCascades.Get() : r_shadowCascades.Get();
 		} else if (light->rlType == refLightType_t::RL_OMNI) {
 			requiredTiles = kPointLightFaceCount;
 		} else {
@@ -980,7 +1013,6 @@ void ShadowMapManager::UpdateShadowMaps() {
 
         if (SetupLightShadows(light, i)) {
             Log::Debug("Successfully set up shadow for scene light %d", i);
-            lightsProcessed++;
             usedTiles += requiredTiles;
         } else {
             // Same rationale as above: keep indices aligned by only shadowing a contiguous
@@ -1363,9 +1395,13 @@ void ShadowMapManager::BuildShadowViews() {
                 PerpendicularVector(up, fwd);
                 CrossProduct(fwd, up, right); // right-handed
                 VectorNegate(right, left);     // FLU expects left axis
-                // Place origin far along -fwd like in SetupDirectionalLightMatrix
+                // Match SetupDirectionalLightMatrix placement.
                 vec3_t origin;
-                VectorMA(vec3_origin, -2000.0f, fwd, origin);
+                if (light->flags & REF_INVERSE_DLIGHT) {
+                    VectorMA(tr.refdef.vieworg, -2000.0f, fwd, origin);
+                } else {
+                    VectorMA(vec3_origin, -2000.0f, fwd, origin);
+                }
                 VectorCopy(origin, inView.orientation.origin);
                 VectorCopy(origin, inView.orientation.viewOrigin);
             } else if (light->rlType == refLightType_t::RL_PROJ) {
@@ -1386,7 +1422,13 @@ void ShadowMapManager::BuildShadowViews() {
             VectorCopy(fwd,  inView.orientation.axis[0]);
             VectorCopy(left, inView.orientation.axis[1]);
             VectorCopy(up,   inView.orientation.axis[2]);
-            VectorCopy(inView.orientation.origin, inView.pvsOrigin);
+            if (light->rlType == refLightType_t::RL_DIRECTIONAL && (light->flags & REF_INVERSE_DLIGHT)) {
+                // Use camera PVS for inverse directional gather so nearby dynamic casters
+                // are not clipped by a far-away directional light origin leaf.
+                VectorCopy(tr.refdef.vieworg, inView.pvsOrigin);
+            } else {
+                VectorCopy(inView.orientation.origin, inView.pvsOrigin);
+            }
             inView.portalLevel = 0;
             inView.fovX = 90.0f;
             inView.fovY = 90.0f;
@@ -1564,11 +1606,16 @@ void ShadowMapManager::SetupDirectionalLightMatrix(refLight_t* light, shadowMap_
 
 	// Create view matrix looking down the light direction
 	vec3_t lightPos, up, right;
+	const bool inverseDirectional = (light->flags & REF_INVERSE_DLIGHT) != 0;
 
 	// Position the light far away in the opposite direction
-	// For directional lights, we don't use the light origin as they represent infinite light
-	// Just position it very far away in the opposite direction of the light
-	VectorScale(lightDir, -2000.0f, lightPos);
+	// For inverse directional shadows, anchor around the camera to keep dynamic casters
+	// inside the orthographic volume. Regular directional lights keep existing behavior.
+	if (inverseDirectional) {
+		VectorMA(tr.refdef.vieworg, -2000.0f, lightDir, lightPos);
+	} else {
+		VectorScale(lightDir, -2000.0f, lightPos);
+	}
 
 	Log::Debug("Directional light position: (%.1f, %.1f, %.1f)", lightPos[0], lightPos[1], lightPos[2]);
 
@@ -1576,7 +1623,11 @@ void ShadowMapManager::SetupDirectionalLightMatrix(refLight_t* light, shadowMap_
 	if (VectorLength(lightDir) < 0.001f) {
 		Log::Warn("Invalid light direction vector (length < 0.001), using default down direction");
 		VectorSet(lightDir, 0.0f, 0.0f, -1.0f);
-		VectorScale(lightDir, -2000.0f, lightPos);
+		if (inverseDirectional) {
+			VectorMA(tr.refdef.vieworg, -2000.0f, lightDir, lightPos);
+		} else {
+			VectorScale(lightDir, -2000.0f, lightPos);
+		}
 	}
 
 	// Create orthonormal basis
@@ -1587,7 +1638,7 @@ void ShadowMapManager::SetupDirectionalLightMatrix(refLight_t* light, shadowMap_
     MatrixLookAtRH(viewMatrix, lightPos, lightDir, up);
 
     // Fixed, stable orthographic projection for directional light
-    float size = 2048.0f;
+    float size = inverseDirectional ? r_inverseGlobalOrthoSize.Get() : 2048.0f;
     MatrixOrthogonalProjection(projectionMatrix, -size, size, -size, size, 1.0f, 4000.0f);
     Log::Debug("Directional ortho (fixed): -/+ %.1f, near=1.0, far=4000.0", size);
 

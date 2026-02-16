@@ -616,6 +616,29 @@ void RE_RenderScene( const refdef_t *fd )
 		}
 	}
 
+	// Inject a global inverse directional light for scalable dynamic inverse shadows.
+	if ( r_inverseGlobalLight.Get() && r_numLights < MAX_REF_LIGHTS )
+	{
+		refLight_t *inverseSun = &backEndData[ tr.smpFrame ]->lights[ r_numLights++ ];
+		*inverseSun = {};
+		inverseSun->rlType = refLightType_t::RL_DIRECTIONAL;
+
+		float yaw = DEG2RAD( r_inverseGlobalYaw.Get() );
+		float pitch = DEG2RAD( r_inverseGlobalPitch.Get() );
+		inverseSun->projTarget[0] = cosf( pitch ) * cosf( yaw );
+		inverseSun->projTarget[1] = cosf( pitch ) * sinf( yaw );
+		inverseSun->projTarget[2] = sinf( pitch );
+		VectorNormalize( inverseSun->projTarget );
+
+		inverseSun->color[0] = r_inverseGlobalColorR.Get();
+		inverseSun->color[1] = r_inverseGlobalColorG.Get();
+		inverseSun->color[2] = r_inverseGlobalColorB.Get();
+		inverseSun->scale = r_inverseGlobalIntensity.Get();
+		inverseSun->radius = 0.0f;
+		inverseSun->flags = REF_INVERSE_DLIGHT | REF_RESTRICT_DLIGHT;
+		VectorClear( inverseSun->origin );
+	}
+
 	if ( r_debugProjLight.Get() )
 	{
 		AddDebugProjectedLight();

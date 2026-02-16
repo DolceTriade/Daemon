@@ -152,6 +152,24 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 		1.0f, 0.1f, 10.0f );
 	Cvar::Range<Cvar::Cvar<int>> r_shadowLights( "r_shadowLights", "max shadow casting lights", Cvar::NONE,
 		4, 1, 8 );
+	Cvar::Cvar<bool> r_inverseGlobalLight( "r_inverseGlobalLight", "inject a global inverse directional shadow light", Cvar::NONE, false );
+	Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalYaw( "r_inverseGlobalYaw", "global inverse directional light yaw in degrees", Cvar::NONE,
+		315.0f, -360.0f, 360.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalPitch( "r_inverseGlobalPitch", "global inverse directional light pitch in degrees", Cvar::NONE,
+		-50.0f, -89.0f, 89.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalIntensity( "r_inverseGlobalIntensity", "global inverse directional light intensity", Cvar::NONE,
+		1.0f, 0.0f, 100.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalColorR( "r_inverseGlobalColorR", "global inverse directional light color red", Cvar::NONE,
+		1.0f, 0.0f, 10.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalColorG( "r_inverseGlobalColorG", "global inverse directional light color green", Cvar::NONE,
+		1.0f, 0.0f, 10.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalColorB( "r_inverseGlobalColorB", "global inverse directional light color blue", Cvar::NONE,
+		1.0f, 0.0f, 10.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalOrthoSize( "r_inverseGlobalOrthoSize", "half-size of the inverse directional orthographic shadow volume in world units", Cvar::NONE,
+		768.0f, 128.0f, 4096.0f );
+	Cvar::Cvar<bool> r_inverseGlobalDisableVirtual( "r_inverseGlobalDisableVirtual", "disable virtual inverse/spot lights when global inverse light is enabled", Cvar::NONE, true );
+	Cvar::Range<Cvar::Cvar<int>> r_inverseGlobalCascades( "r_inverseGlobalCascades", "cascade count for inverse directional lights", Cvar::NONE,
+		1, 1, 4 );
 	Cvar::Range<Cvar::Cvar<int>> r_shadowCascadeScheme( "r_shadowCascadeScheme", "cascade split scheme (0=uniform, 1=logarithmic, 2=practical)", Cvar::NONE,
 		2, 0, 2 );
 	Cvar::Range<Cvar::Cvar<int>> r_shadowAtlasSize( "r_shadowAtlasSize", "shadow atlas resolution", Cvar::NONE,
@@ -1294,6 +1312,7 @@ ScreenshotCmd screenshotPNGRegistration("screenshotPNG", ssFormat_t::SSF_PNG, "p
 		Cvar::Latch( r_shadowCascades );
 		Cvar::Latch( r_shadowLights );
 		Cvar::Latch( r_shadowAtlasSize );
+		Cvar::Latch( r_inverseGlobalCascades );
 
 		r_maxPolys = Cvar_Get( "r_maxpolys", "10000", CVAR_LATCH );  // 600 in vanilla Q3A
 		AssertCvarRange( r_maxPolys, 600, 30000, true );
