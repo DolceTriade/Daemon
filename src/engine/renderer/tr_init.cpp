@@ -167,6 +167,12 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 		1.0f, 0.0f, 10.0f );
 	Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalOrthoSize( "r_inverseGlobalOrthoSize", "half-size of the inverse directional orthographic shadow volume in world units", Cvar::NONE,
 		768.0f, 128.0f, 4096.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalCascadeBaseRange( "r_inverseGlobalCascadeBaseRange", "distance covered by the first inverse cascade", Cvar::NONE,
+		384.0f, 64.0f, 4096.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalCascadeRangeScale( "r_inverseGlobalCascadeRangeScale", "depth growth factor between inverse cascades", Cvar::NONE,
+		2.0f, 1.1f, 4.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalCascadeOrthoScale( "r_inverseGlobalCascadeOrthoScale", "ortho-size growth factor between inverse cascades", Cvar::NONE,
+		2.0f, 1.1f, 4.0f );
 	Cvar::Cvar<bool> r_inverseGlobalStabilize( "r_inverseGlobalStabilize", "stabilize inverse directional shadow anchor to reduce swimming", Cvar::NONE, true );
 	Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalDeadzone( "r_inverseGlobalDeadzone", "camera movement deadzone for inverse directional shadow anchor updates", Cvar::NONE,
 		96.0f, 0.0f, 1024.0f );

@@ -288,7 +288,7 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
 	shadowCoord.z = clamp(shadowCoord.z - bias, 0.0, 1.0);
 
 	// Allow a tiny epsilon around the border to avoid precision flicker at tile edges.
-	const float borderEps = 1e-1;
+	const float borderEps = 1e-6;
 	if (shadowCoord.x < -borderEps || shadowCoord.x > 1.0 + borderEps ||
 	    shadowCoord.y < -borderEps || shadowCoord.y > 1.0 + borderEps) {
 		return 1.0; // Outside shadow map, fully lit

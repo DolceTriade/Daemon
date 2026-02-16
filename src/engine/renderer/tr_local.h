@@ -2835,6 +2835,9 @@ struct shadowData_t {
 	extern Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalColorG;
 	extern Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalColorB;
 	extern Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalOrthoSize;
+	extern Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalCascadeBaseRange;
+	extern Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalCascadeRangeScale;
+	extern Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalCascadeOrthoScale;
 	extern Cvar::Cvar<bool> r_inverseGlobalStabilize;
 	extern Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalDeadzone;
 	extern Cvar::Cvar<bool> r_inverseGlobalSnap;

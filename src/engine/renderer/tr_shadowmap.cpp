@@ -28,6 +28,7 @@ along with Daemon Source Code.  If not, see <http://www.gnu.org/licenses/>.
 #include "Material.h"
 #include "gl_shader.h"
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <vector>
 
@@ -178,6 +179,67 @@ static void ComputeInverseDirectionalCenter( const vec3_t lightDir, float orthoS
 
 	VectorMA( outCenter, snappedR - centerR, right, outCenter );
 	VectorMA( outCenter, snappedU - centerU, up, outCenter );
+}
+
+static void ComputeDirectionalCascadeSplits( int numCascades, float nearClip, float farClip, float* outSplits ) {
+	if ( numCascades <= 0 ) {
+		return;
+	}
+
+	nearClip = std::max( nearClip, 0.1f );
+	farClip = std::max( farClip, nearClip + 1.0f );
+
+	int scheme = r_shadowCascadeScheme.Get();
+	const float lambda = 0.5f; // practical split blend
+
+	for ( int i = 0; i < numCascades; ++i ) {
+		float p = static_cast<float>( i + 1 ) / static_cast<float>( numCascades );
+		float uniformSplit = nearClip + ( farClip - nearClip ) * p;
+		float logSplit = nearClip * powf( farClip / nearClip, p );
+		float split = uniformSplit;
+		if ( scheme == 1 ) {
+			split = logSplit;
+		} else if ( scheme == 2 ) {
+			split = ( 1.0f - lambda ) * uniformSplit + lambda * logSplit;
+		}
+		outSplits[ i ] = split;
+	}
+}
+
+static void ComputeInverseCascadeSplits( int numCascades, float baseRange, float rangeScale, float* outSplits ) {
+	if ( numCascades <= 0 ) {
+		return;
+	}
+
+	baseRange = std::max( baseRange, 16.0f );
+	rangeScale = std::max( rangeScale, 1.01f );
+
+	float split = baseRange;
+	for ( int i = 0; i < numCascades; ++i ) {
+		outSplits[ i ] = split;
+		split *= rangeScale;
+	}
+}
+
+static void SnapCenterToLightTexel( const vec3_t lightDir, float orthoSize, int shadowMapSize, vec3_t center ) {
+	int mapSize = std::max( shadowMapSize, 1 );
+	float unitsPerTexel = ( 2.0f * std::max( orthoSize, 1.0f ) ) / static_cast<float>( mapSize );
+	if ( unitsPerTexel <= 0.0f ) {
+		return;
+	}
+
+	vec3_t up, right;
+	PerpendicularVector( up, lightDir );
+	CrossProduct( lightDir, up, right );
+	VectorNormalize( right );
+
+	float centerR = DotProduct( center, right );
+	float centerU = DotProduct( center, up );
+	float snappedR = floorf( centerR / unitsPerTexel + 0.5f ) * unitsPerTexel;
+	float snappedU = floorf( centerU / unitsPerTexel + 0.5f ) * unitsPerTexel;
+
+	VectorMA( center, snappedR - centerR, right, center );
+	VectorMA( center, snappedU - centerU, up, center );
 }
 
 struct VirtualLightSample {
@@ -780,6 +842,20 @@ bool ShadowMapManager::SetupLightShadows(refLight_t* light, int sceneIndex) {
 		lightShadow->numCascades = 1;
 	}
 
+	if (light->rlType == refLightType_t::RL_DIRECTIONAL) {
+		if (light->flags & REF_INVERSE_DLIGHT) {
+			ComputeInverseCascadeSplits(
+				lightShadow->numCascades,
+				r_inverseGlobalCascadeBaseRange.Get(),
+				r_inverseGlobalCascadeRangeScale.Get(),
+				lightShadow->cascadeSplits );
+		} else {
+			float nearClip = 1.0f;
+			float farClip = 4000.0f;
+			ComputeDirectionalCascadeSplits(lightShadow->numCascades, nearClip, farClip, lightShadow->cascadeSplits);
+		}
+	}
+
 	// Set up shadow maps for each cascade
 	bool setupSuccess = true;
 	for (int cascade = 0; cascade < lightShadow->numCascades; cascade++) {
@@ -791,6 +867,9 @@ bool ShadowMapManager::SetupLightShadows(refLight_t* light, int sceneIndex) {
 		shadowMap->cascadeIndex = cascade;
 		shadowMap->lightIndex = lightIndex;
 		shadowMap->cubeFace = (light->rlType == refLightType_t::RL_OMNI) ? cascade : -1;
+		shadowMap->cascadeSplit = (light->rlType == refLightType_t::RL_DIRECTIONAL)
+			? lightShadow->cascadeSplits[cascade]
+			: 0.0f;
 
 		Log::Debug("Setting up cascade %d: technique=%d, size=%dx%d",
 		          cascade, static_cast<int>(shadowMap->technique),
@@ -1448,7 +1527,7 @@ void ShadowMapManager::BuildShadowViews() {
                 VectorNegate(right, left);     // FLU expects left axis
                 // Match SetupDirectionalLightMatrix placement.
                 vec3_t origin;
-                if (light->flags & REF_INVERSE_DLIGHT) {
+                if ((light->flags & REF_INVERSE_DLIGHT) || r_shadowCascades.Get() > 1) {
                     VectorMA(shadowMap->inverseDirectionalCenter, -2000.0f, fwd, origin);
                 } else {
                     VectorMA(vec3_origin, -2000.0f, fwd, origin);
@@ -1473,8 +1552,8 @@ void ShadowMapManager::BuildShadowViews() {
             VectorCopy(fwd,  inView.orientation.axis[0]);
             VectorCopy(left, inView.orientation.axis[1]);
             VectorCopy(up,   inView.orientation.axis[2]);
-            if (light->rlType == refLightType_t::RL_DIRECTIONAL && (light->flags & REF_INVERSE_DLIGHT)) {
-                // Keep gather/PVS anchor coherent with the matrix anchor for this shadow map.
+            if (light->rlType == refLightType_t::RL_DIRECTIONAL && ((light->flags & REF_INVERSE_DLIGHT) || r_shadowCascades.Get() > 1)) {
+                // Keep gather/PVS anchor coherent with the matrix anchor for this directional shadow map.
                 VectorCopy(shadowMap->inverseDirectionalCenter, inView.pvsOrigin);
             } else {
                 VectorCopy(inView.orientation.origin, inView.pvsOrigin);
@@ -1593,15 +1672,25 @@ void ShadowMapManager::GetCascadeSplits(vec4_t* splits, int maxLights) const {
 
 	// Initialize all splits
 	for (int i = 0; i < maxLights; i++) {
-		Vector4Set(splits[i], 10.0f, 50.0f, 200.0f, 1000.0f); // Default splits
+		Vector4Set(splits[i], 1e6f, 1e6f, 1e6f, 1e6f);
 	}
 
-	// Fill in actual cascade splits (for now, using defaults)
-	// TODO: Implement proper cascade split calculation
 	for (int lightIndex = 0; lightIndex < sd->numShadowLights && lightIndex < maxLights && lightIndex < MAX_SHADOW_LIGHTS; lightIndex++) {
-		// For directional lights, we would set proper cascade splits
-		// For now, using reasonable defaults
-		Vector4Set(splits[lightIndex], 10.0f, 50.0f, 200.0f, 1000.0f);
+		const lightShadowInfo_t* lightShadow = &sd->lightShadows[lightIndex];
+		if (!lightShadow->castsShadows || lightShadow->sceneIndex < 0 || lightShadow->sceneIndex >= tr.refdef.numLights) {
+			continue;
+		}
+
+		const refLight_t* light = &tr.refdef.lights[lightShadow->sceneIndex];
+		if (light->rlType != refLightType_t::RL_DIRECTIONAL) {
+			continue;
+		}
+
+		// Shader only reads xyz thresholds. Keep unused values very large.
+		splits[lightIndex][0] = (lightShadow->numCascades >= 1) ? lightShadow->cascadeSplits[0] : 1e6f;
+		splits[lightIndex][1] = (lightShadow->numCascades >= 2) ? lightShadow->cascadeSplits[1] : 1e6f;
+		splits[lightIndex][2] = (lightShadow->numCascades >= 3) ? lightShadow->cascadeSplits[2] : 1e6f;
+		splits[lightIndex][3] = (lightShadow->numCascades >= 4) ? lightShadow->cascadeSplits[3] : 1e6f;
 	}
 }
 
@@ -1658,45 +1747,145 @@ void ShadowMapManager::SetupDirectionalLightMatrix(refLight_t* light, shadowMap_
 	vec3_t lightPos, up, right;
 	const bool inverseDirectional = (light->flags & REF_INVERSE_DLIGHT) != 0;
 
-	// Position the light far away in the opposite direction.
-	// For inverse directional shadows, use a stabilized center to reduce swimming/popping.
-	float orthoSize = inverseDirectional ? r_inverseGlobalOrthoSize.Get() : 2048.0f;
-	if (inverseDirectional) {
-		vec3_t center;
-		ComputeInverseDirectionalCenter( lightDir, orthoSize, static_cast<int>( shadowMap->size[0] ), center );
-		VectorCopy( center, shadowMap->inverseDirectionalCenter );
-		VectorMA(center, -2000.0f, lightDir, lightPos);
-	} else {
-		VectorClear( shadowMap->inverseDirectionalCenter );
-		VectorScale(lightDir, -2000.0f, lightPos);
-	}
-
-	Log::Debug("Directional light position: (%.1f, %.1f, %.1f)", lightPos[0], lightPos[1], lightPos[2]);
-
 	// Validate that we have a valid light direction
 	if (VectorLength(lightDir) < 0.001f) {
 		Log::Warn("Invalid light direction vector (length < 0.001), using default down direction");
 		VectorSet(lightDir, 0.0f, 0.0f, -1.0f);
-		if (inverseDirectional) {
-			vec3_t center;
-			ComputeInverseDirectionalCenter( lightDir, orthoSize, static_cast<int>( shadowMap->size[0] ), center );
-			VectorCopy( center, shadowMap->inverseDirectionalCenter );
-			VectorMA(center, -2000.0f, lightDir, lightPos);
-		} else {
-			VectorScale(lightDir, -2000.0f, lightPos);
-		}
 	}
 
 	// Create orthonormal basis
 	PerpendicularVector(up, lightDir);
 	CrossProduct(lightDir, up, right);
+	VectorNormalize(right);
 
-    // Build view matrix
-    MatrixLookAtRH(viewMatrix, lightPos, lightDir, up);
+	float orthoSize = inverseDirectional ? r_inverseGlobalOrthoSize.Get() : 2048.0f;
+	vec3_t center;
 
-    // Fixed, stable orthographic projection for directional light
-    MatrixOrthogonalProjection(projectionMatrix, -orthoSize, orthoSize, -orthoSize, orthoSize, 1.0f, 4000.0f);
-    Log::Debug("Directional ortho (fixed): -/+ %.1f, near=1.0, far=4000.0", orthoSize);
+	const int numCascades = inverseDirectional ? r_inverseGlobalCascades.Get() : r_shadowCascades.Get();
+	if (inverseDirectional && numCascades > 1) {
+		// Stable inverse cascades: fixed split thresholds + per-cascade ortho growth,
+		// all anchored by the same stabilized center logic.
+		int cascade = std::clamp(shadowMap->cascadeIndex, 0, numCascades - 1);
+		float baseSize = std::max(32.0f, r_inverseGlobalOrthoSize.Get());
+		float orthoScale = std::max(1.01f, r_inverseGlobalCascadeOrthoScale.Get());
+		float baseRange = std::max(16.0f, r_inverseGlobalCascadeBaseRange.Get());
+		float rangeScale = std::max(1.01f, r_inverseGlobalCascadeRangeScale.Get());
+
+		orthoSize = baseSize * powf(orthoScale, static_cast<float>(cascade));
+		shadowMap->cascadeSplit = baseRange * powf(rangeScale, static_cast<float>(cascade));
+
+		ComputeInverseDirectionalCenter(lightDir, orthoSize, static_cast<int>(shadowMap->size[0]), center);
+		VectorCopy(center, shadowMap->inverseDirectionalCenter);
+		VectorMA(center, -2000.0f, lightDir, lightPos);
+
+		MatrixLookAtRH(viewMatrix, lightPos, lightDir, up);
+		MatrixOrthogonalProjection(projectionMatrix, -orthoSize, orthoSize, -orthoSize, orthoSize, 1.0f, 4000.0f);
+		Log::Debug("Inverse directional cascade %d/%d ortho=%.1f splitFar=%.1f",
+			cascade + 1, numCascades, orthoSize, shadowMap->cascadeSplit);
+	} else if (numCascades > 1) {
+		// Build camera-frustum slice bounds for this cascade.
+		float nearClip = 1.0f;
+		std::vector<float> splits(numCascades, 4000.0f);
+		if (inverseDirectional) {
+			ComputeInverseCascadeSplits(
+				numCascades,
+				r_inverseGlobalCascadeBaseRange.Get(),
+				r_inverseGlobalCascadeRangeScale.Get(),
+				splits.data());
+		} else {
+			ComputeDirectionalCascadeSplits(numCascades, nearClip, 4000.0f, splits.data());
+		}
+
+		int cascade = std::clamp(shadowMap->cascadeIndex, 0, numCascades - 1);
+		float splitNear = (cascade == 0) ? nearClip : splits[cascade - 1];
+		float splitFar = splits[cascade];
+		shadowMap->cascadeSplit = splitFar;
+
+		vec3_t forward, leftAxis, rightAxis, upAxis;
+		VectorCopy(tr.refdef.viewaxis[0], forward);
+		VectorCopy(tr.refdef.viewaxis[1], leftAxis);
+		VectorCopy(tr.refdef.viewaxis[2], upAxis);
+		VectorNegate(leftAxis, rightAxis);
+
+		float tanHalfFovX = tanf(DEG2RAD(tr.refdef.fov_x * 0.5f));
+		float tanHalfFovY = tanf(DEG2RAD(tr.refdef.fov_y * 0.5f));
+		float nearW = splitNear * tanHalfFovX;
+		float nearH = splitNear * tanHalfFovY;
+		float farW = splitFar * tanHalfFovX;
+		float farH = splitFar * tanHalfFovY;
+
+		vec3_t nc, fc;
+		VectorMA(tr.refdef.vieworg, splitNear, forward, nc);
+		VectorMA(tr.refdef.vieworg, splitFar, forward, fc);
+
+		vec3_t corners[8];
+		VectorMA(nc,  nearH, upAxis, corners[0]); VectorMA(corners[0],  nearW, rightAxis, corners[0]);
+		VectorMA(nc,  nearH, upAxis, corners[1]); VectorMA(corners[1], -nearW, rightAxis, corners[1]);
+		VectorMA(nc, -nearH, upAxis, corners[2]); VectorMA(corners[2],  nearW, rightAxis, corners[2]);
+		VectorMA(nc, -nearH, upAxis, corners[3]); VectorMA(corners[3], -nearW, rightAxis, corners[3]);
+		VectorMA(fc,  farH, upAxis, corners[4]);  VectorMA(corners[4],  farW, rightAxis, corners[4]);
+		VectorMA(fc,  farH, upAxis, corners[5]);  VectorMA(corners[5], -farW, rightAxis, corners[5]);
+		VectorMA(fc, -farH, upAxis, corners[6]);  VectorMA(corners[6],  farW, rightAxis, corners[6]);
+		VectorMA(fc, -farH, upAxis, corners[7]);  VectorMA(corners[7], -farW, rightAxis, corners[7]);
+
+		VectorClear(center);
+		for (const vec3_t& c : corners) {
+			VectorAdd(center, c, center);
+		}
+		VectorScale(center, 1.0f / 8.0f, center);
+
+		float maxAbsX = 0.0f;
+		float maxAbsY = 0.0f;
+		float minZ = FLT_MAX;
+		float maxZ = -FLT_MAX;
+		for (const vec3_t& c : corners) {
+			vec3_t rel;
+			VectorSubtract(c, center, rel);
+			float x = fabsf(DotProduct(rel, right));
+			float y = fabsf(DotProduct(rel, up));
+			float z = DotProduct(rel, lightDir);
+			maxAbsX = std::max(maxAbsX, x);
+			maxAbsY = std::max(maxAbsY, y);
+			minZ = std::min(minZ, z);
+			maxZ = std::max(maxZ, z);
+		}
+		orthoSize = std::max(maxAbsX, maxAbsY) + 16.0f; // guard band
+		if (inverseDirectional) {
+			float baseSize = std::max(32.0f, r_inverseGlobalOrthoSize.Get());
+			float orthoScale = std::max(1.01f, r_inverseGlobalCascadeOrthoScale.Get());
+			float minSize = baseSize * powf(orthoScale, static_cast<float>(cascade));
+			orthoSize = std::max(orthoSize, minSize);
+		}
+
+		if (inverseDirectional && r_inverseGlobalSnap.Get()) {
+			SnapCenterToLightTexel(lightDir, orthoSize, static_cast<int>(shadowMap->size[0]), center);
+		}
+		VectorCopy(center, shadowMap->inverseDirectionalCenter);
+
+		float depthRange = std::max(64.0f, maxZ - minZ);
+		float centerDepth = 0.5f * (maxZ + minZ);
+		VectorMA(center, -(centerDepth + depthRange * 0.5f + 32.0f), lightDir, lightPos);
+		MatrixLookAtRH(viewMatrix, lightPos, lightDir, up);
+		MatrixOrthogonalProjection(projectionMatrix, -orthoSize, orthoSize, -orthoSize, orthoSize, 1.0f, depthRange + 64.0f);
+		Log::Debug("%s directional cascade %d/%d ortho=%.1f nearSplit=%.1f farSplit=%.1f",
+			inverseDirectional ? "inverse" : "regular",
+			cascade + 1, numCascades, orthoSize, splitNear, splitFar);
+	} else {
+		// Single-cascade path: keep current behavior and cvar-driven tuning.
+		if (inverseDirectional) {
+			ComputeInverseDirectionalCenter(lightDir, orthoSize, static_cast<int>(shadowMap->size[0]), center);
+			VectorCopy(center, shadowMap->inverseDirectionalCenter);
+			VectorMA(center, -2000.0f, lightDir, lightPos);
+		} else {
+			VectorClear(shadowMap->inverseDirectionalCenter);
+			VectorScale(lightDir, -2000.0f, lightPos);
+		}
+
+		Log::Debug("Directional light position: (%.1f, %.1f, %.1f)", lightPos[0], lightPos[1], lightPos[2]);
+		MatrixLookAtRH(viewMatrix, lightPos, lightDir, up);
+		MatrixOrthogonalProjection(projectionMatrix, -orthoSize, orthoSize, -orthoSize, orthoSize, 1.0f, 4000.0f);
+		Log::Debug("Directional ortho (fixed): -/+ %.1f, near=1.0, far=4000.0", orthoSize);
+	}
 
 	// Log matrix for debugging
 	Log::Debug("Directional light view matrix:");
