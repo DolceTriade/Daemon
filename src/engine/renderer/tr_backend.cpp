@@ -1452,6 +1452,12 @@ void RB_RenderBloom()
 
 		gl_blurShader->SetUniform_DeformMagnitude( r_bloomBlur.Get() );
 		gl_blurShader->SetUniform_TexScale( texScale );
+		gl_blurShader->SetUniform_BlurTexBounds(
+			0.5f * texScale[0],
+			0.5f * texScale[1],
+			1.0f - 0.5f * texScale[0],
+			1.0f - 0.5f * texScale[1]
+		);
 
 		gl_blurShader->SetUniform_ColorMapBindless(
 			GL_BindToTMU( 0, tr.contrastRenderFBOImage )

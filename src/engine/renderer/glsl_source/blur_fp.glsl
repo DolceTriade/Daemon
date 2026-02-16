@@ -26,11 +26,12 @@ uniform sampler2D u_ColorMap;
 uniform float u_DeformMagnitude;
 uniform vec2 u_TexScale;
 uniform bool u_Horizontal;
+uniform vec4 u_BlurTexBounds; // minS, minT, maxS, maxT
 
 DECLARE_OUTPUT( vec4 )
 
 void main() {
-	vec2 st = gl_FragCoord.st * u_TexScale;
+	vec2 st = clamp( gl_FragCoord.st * u_TexScale, u_BlurTexBounds.xy, u_BlurTexBounds.zw );
 
 #if 0
 	float gaussFact[3] = float[3] ( 1.0, 2.0, 1.0 );
@@ -48,10 +49,12 @@ void main() {
 
 	// do a full gaussian blur
 	vec4 sumColors = vec4( 0.0 );
+	vec2 blurDir = vec2( u_Horizontal ? 1.0 : 0.0, u_Horizontal ? 0.0 : 1.0 ) * u_TexScale * u_DeformMagnitude;
 	
 	for( int t = -tap; t <= tap; t++ ) {
 		float weight = gaussFact[t + tap];
-		sumColors += texture2D( u_ColorMap, st + vec2( u_Horizontal ? t : 0, u_Horizontal ? 0 : t ) * u_TexScale * u_DeformMagnitude ) * weight;
+		vec2 sampleST = clamp( st + float( t ) * blurDir, u_BlurTexBounds.xy, u_BlurTexBounds.zw );
+		sumColors += texture2D( u_ColorMap, sampleST ) * weight;
 	}
 
 	outputColor = sumColors * ( 1.0 / gaussSum );

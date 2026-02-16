@@ -103,23 +103,26 @@ float SampleShadowEVSM32(sampler2D shadowMap, vec3 shadowCoord, float exponent, 
 }
 
 // PCF filtering for shadow maps
-float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec2 shadowMapSize, float exponent, bool inverseLight) {
+float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec2 shadowMapSize,
+	float exponent, bool inverseLight, vec2 tileMin, vec2 tileMax) {
 	vec2 texelSize = 1.0 / shadowMapSize;
 	float shadow = 0.0;
 	int samples = 0;
+	vec2 clampedBase = clamp(shadowCoord.xy, tileMin, tileMax);
 
 	if (filterType == 0) {
 		// No PCF - single sample
+		vec3 singleCoord = vec3(clampedBase, shadowCoord.z);
 		switch (u_ShadowTechnique) {
 			case 2: // SHADOWING_ESM16
-				return SampleShadowESM16(shadowMap, shadowCoord, exponent, inverseLight);
+				return SampleShadowESM16(shadowMap, singleCoord, exponent, inverseLight);
 			case 3: // SHADOWING_ESM32
-				return SampleShadowESM32(shadowMap, shadowCoord, exponent, inverseLight);
+				return SampleShadowESM32(shadowMap, singleCoord, exponent, inverseLight);
 			case 4: // SHADOWING_VSM16
 			case 5: // SHADOWING_VSM32
-				return SampleShadowVSM(shadowMap, shadowCoord);
+				return SampleShadowVSM(shadowMap, singleCoord);
 			case 6: // SHADOWING_EVSM32
-				return SampleShadowEVSM32(shadowMap, shadowCoord, exponent, inverseLight);
+				return SampleShadowEVSM32(shadowMap, singleCoord, exponent, inverseLight);
 			default:
 				return 1.0;
 		}
@@ -129,6 +132,7 @@ float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec
 		for (int x = -1; x <= 0; x++) {
 			for (int y = -1; y <= 0; y++) {
 				vec3 sampleCoord = shadowCoord + vec3(float(x) * texelSize.x, float(y) * texelSize.y, 0.0);
+				sampleCoord.xy = clamp(sampleCoord.xy, tileMin, tileMax);
 
 				switch (u_ShadowTechnique) {
 					case 2: shadow += SampleShadowESM16(shadowMap, sampleCoord, exponent, inverseLight); break;
@@ -147,6 +151,7 @@ float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec
 		for (int x = -2; x <= 1; x++) {
 			for (int y = -2; y <= 1; y++) {
 				vec3 sampleCoord = shadowCoord + vec3(float(x) * texelSize.x, float(y) * texelSize.y, 0.0);
+				sampleCoord.xy = clamp(sampleCoord.xy, tileMin, tileMax);
 
 				switch (u_ShadowTechnique) {
 					case 2: shadow += SampleShadowESM16(shadowMap, sampleCoord, exponent, inverseLight); break;
@@ -175,6 +180,7 @@ float SampleShadowPCF(sampler2D shadowMap, vec3 shadowCoord, int filterType, vec
 
 		for (int i = 0; i < 16; i++) {
 			vec3 sampleCoord = shadowCoord + vec3(poissonDisk[i] * texelSize, 0.0);
+			sampleCoord.xy = clamp(sampleCoord.xy, tileMin, tileMax);
 
 			switch (u_ShadowTechnique) {
 				case 2: shadow += SampleShadowESM16(shadowMap, sampleCoord, exponent, inverseLight); break;
@@ -273,11 +279,13 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
 	float bias = u_ShadowParams.x;
 	shadowCoord.z = clamp(shadowCoord.z - bias, 0.0, 1.0);
 
-	// Check if we're outside the shadow map
-	if (shadowCoord.x < 0.0 || shadowCoord.x > 1.0 ||
-	    shadowCoord.y < 0.0 || shadowCoord.y > 1.0) {
+	// Allow a tiny epsilon around the border to avoid precision flicker at tile edges.
+	const float borderEps = 1e-1;
+	if (shadowCoord.x < -borderEps || shadowCoord.x > 1.0 + borderEps ||
+	    shadowCoord.y < -borderEps || shadowCoord.y > 1.0 + borderEps) {
 		return 1.0; // Outside shadow map, fully lit
 	}
+	shadowCoord.xy = clamp(shadowCoord.xy, 0.0, 1.0);
 
 	// Offset into atlas based on slice transform
 	vec2 atlasOffset = tile.xy;
@@ -296,7 +304,12 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
     // step is 1 / r_shadowAtlasSize in each dimension, not 1 / r_shadowMapSize.
     vec2 shadowMapSize = vec2(r_shadowAtlasSize);
 
-	return SampleShadowPCF(u_ShadowAtlas, shadowCoord, pcfFilter, shadowMapSize, exponent, inverseLight);
+	vec2 atlasTexel = 1.0 / shadowMapSize;
+	vec2 tileMin = atlasOffset + atlasTexel;
+	vec2 tileMax = atlasOffset + atlasScale - atlasTexel;
+	tileMax = max(tileMax, tileMin);
+
+	return SampleShadowPCF(u_ShadowAtlas, shadowCoord, pcfFilter, shadowMapSize, exponent, inverseLight, tileMin, tileMax);
 }
 
 #endif // USE_SHADOW_MAPPING

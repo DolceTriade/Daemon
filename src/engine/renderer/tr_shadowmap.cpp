@@ -1270,6 +1270,13 @@ void ShadowMapManager::RenderShadowMaps() {
                 int y = region.offset[1];
                 int w = region.size[0];
                 int h = region.size[1];
+                float atlasTexel = 1.0f / sd->shadowAtlas.size;
+                gl_blurShader->SetUniform_BlurTexBounds(
+                    (x + 0.5f) * atlasTexel,
+                    (y + 0.5f) * atlasTexel,
+                    (x + w - 0.5f) * atlasTexel,
+                    (y + h - 0.5f) * atlasTexel
+                );
 
                 // Horizontal pass: src = atlas.colorImage, dst = tempFBO
                 gl_blurShader->SetUniform_Horizontal(true);

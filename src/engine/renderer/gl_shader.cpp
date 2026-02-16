@@ -2789,7 +2789,8 @@ GLShader_blur::GLShader_blur() :
 	u_ColorMap( this ),
 	u_DeformMagnitude( this ),
 	u_TexScale( this ),
-	u_Horizontal( this )
+	u_Horizontal( this ),
+	u_BlurTexBounds( this )
 {
 }
 

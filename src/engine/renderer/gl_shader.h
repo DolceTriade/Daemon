@@ -3064,6 +3064,27 @@ public:
 	}
 };
 
+class u_BlurTexBounds :
+	GLUniform4f
+{
+public:
+	u_BlurTexBounds( GLShader *shader ) :
+		GLUniform4f( shader, "u_BlurTexBounds" )
+	{
+	}
+
+	void SetUniform_BlurTexBounds( float minS, float minT, float maxS, float maxT )
+	{
+		vec4_t v = { minS, minT, maxS, maxT };
+		this->SetValue( v );
+	}
+
+	void SetUniform_BlurTexBounds( vec4_t v )
+	{
+		this->SetValue( v );
+	}
+};
+
 class u_SpecularExponent :
 	GLUniform2f
 {
@@ -3761,7 +3782,8 @@ class GLShader_blur :
 	public u_ColorMap,
 	public u_DeformMagnitude,
 	public u_TexScale,
-	public u_Horizontal
+	public u_Horizontal,
+	public u_BlurTexBounds
 {
 public:
 	GLShader_blur();
