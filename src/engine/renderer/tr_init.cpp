@@ -167,6 +167,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 		1.0f, 0.0f, 10.0f );
 	Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalOrthoSize( "r_inverseGlobalOrthoSize", "half-size of the inverse directional orthographic shadow volume in world units", Cvar::NONE,
 		768.0f, 128.0f, 4096.0f );
+	Cvar::Cvar<bool> r_inverseGlobalStabilize( "r_inverseGlobalStabilize", "stabilize inverse directional shadow anchor to reduce swimming", Cvar::NONE, true );
+	Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalDeadzone( "r_inverseGlobalDeadzone", "camera movement deadzone for inverse directional shadow anchor updates", Cvar::NONE,
+		96.0f, 0.0f, 1024.0f );
+	Cvar::Cvar<bool> r_inverseGlobalSnap( "r_inverseGlobalSnap", "snap inverse directional shadow anchor to light-space texel grid", Cvar::NONE, true );
 	Cvar::Cvar<bool> r_inverseGlobalDisableVirtual( "r_inverseGlobalDisableVirtual", "disable virtual inverse/spot lights when global inverse light is enabled", Cvar::NONE, true );
 	Cvar::Range<Cvar::Cvar<int>> r_inverseGlobalCascades( "r_inverseGlobalCascades", "cascade count for inverse directional lights", Cvar::NONE,
 		1, 1, 4 );

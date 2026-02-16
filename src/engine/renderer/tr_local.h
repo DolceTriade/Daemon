@@ -2437,6 +2437,7 @@ struct shadowMap_t {
     // Cascade data (for directional lights)
     float cascadeSplit;
     vec3_t cascadeBounds[2];
+    vec3_t inverseDirectionalCenter;
 
     // Precomputed frontend draw data for backend depth rendering
     viewParms_t viewParms;
@@ -2834,6 +2835,9 @@ struct shadowData_t {
 	extern Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalColorG;
 	extern Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalColorB;
 	extern Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalOrthoSize;
+	extern Cvar::Cvar<bool> r_inverseGlobalStabilize;
+	extern Cvar::Range<Cvar::Cvar<float>> r_inverseGlobalDeadzone;
+	extern Cvar::Cvar<bool> r_inverseGlobalSnap;
 	extern Cvar::Cvar<bool> r_inverseGlobalDisableVirtual;
 	extern Cvar::Range<Cvar::Cvar<int>> r_inverseGlobalCascades;
 	extern Cvar::Range<Cvar::Cvar<int>> r_shadowCascadeScheme;

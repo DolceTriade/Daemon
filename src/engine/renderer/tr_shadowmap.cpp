@@ -129,6 +129,57 @@ static int PromoteVisibleLights(refLight_t* lights, int count, const ViewPVSInfo
 	return insertPos;
 }
 
+static bool s_inverseDirectionalCenterValid = false;
+static vec3_t s_inverseDirectionalCenter = { 0.0f, 0.0f, 0.0f };
+static vec3_t s_inverseDirectionalLastDir = { 0.0f, 0.0f, -1.0f };
+
+static void ComputeInverseDirectionalCenter( const vec3_t lightDir, float orthoSize, int shadowMapSize, vec3_t outCenter ) {
+	vec3_t viewCenter;
+	VectorCopy( tr.refdef.vieworg, viewCenter );
+
+	// Reset stabilized anchor when light direction changes significantly.
+	float dirDot = DotProduct( lightDir, s_inverseDirectionalLastDir );
+	if ( !s_inverseDirectionalCenterValid || dirDot < 0.999f ) {
+		VectorCopy( viewCenter, s_inverseDirectionalCenter );
+		VectorCopy( lightDir, s_inverseDirectionalLastDir );
+		s_inverseDirectionalCenterValid = true;
+	}
+
+	if ( r_inverseGlobalStabilize.Get() ) {
+		float deadzone = std::max( r_inverseGlobalDeadzone.Get(), 0.0f );
+		if ( deadzone <= 0.0f || Distance( viewCenter, s_inverseDirectionalCenter ) > deadzone ) {
+			VectorCopy( viewCenter, s_inverseDirectionalCenter );
+		}
+	} else {
+		VectorCopy( viewCenter, s_inverseDirectionalCenter );
+	}
+
+	VectorCopy( s_inverseDirectionalCenter, outCenter );
+
+	if ( !r_inverseGlobalSnap.Get() ) {
+		return;
+	}
+
+	int mapSize = std::max( shadowMapSize, 1 );
+	float unitsPerTexel = ( 2.0f * std::max( orthoSize, 1.0f ) ) / static_cast<float>( mapSize );
+	if ( unitsPerTexel <= 0.0f ) {
+		return;
+	}
+
+	vec3_t up, right;
+	PerpendicularVector( up, lightDir );
+	CrossProduct( lightDir, up, right );
+	VectorNormalize( right );
+
+	float centerR = DotProduct( outCenter, right );
+	float centerU = DotProduct( outCenter, up );
+	float snappedR = floorf( centerR / unitsPerTexel + 0.5f ) * unitsPerTexel;
+	float snappedU = floorf( centerU / unitsPerTexel + 0.5f ) * unitsPerTexel;
+
+	VectorMA( outCenter, snappedR - centerR, right, outCenter );
+	VectorMA( outCenter, snappedU - centerU, up, outCenter );
+}
+
 struct VirtualLightSample {
 	vec3_t direction;
 	vec3_t color;
@@ -1398,7 +1449,7 @@ void ShadowMapManager::BuildShadowViews() {
                 // Match SetupDirectionalLightMatrix placement.
                 vec3_t origin;
                 if (light->flags & REF_INVERSE_DLIGHT) {
-                    VectorMA(tr.refdef.vieworg, -2000.0f, fwd, origin);
+                    VectorMA(shadowMap->inverseDirectionalCenter, -2000.0f, fwd, origin);
                 } else {
                     VectorMA(vec3_origin, -2000.0f, fwd, origin);
                 }
@@ -1423,9 +1474,8 @@ void ShadowMapManager::BuildShadowViews() {
             VectorCopy(left, inView.orientation.axis[1]);
             VectorCopy(up,   inView.orientation.axis[2]);
             if (light->rlType == refLightType_t::RL_DIRECTIONAL && (light->flags & REF_INVERSE_DLIGHT)) {
-                // Use camera PVS for inverse directional gather so nearby dynamic casters
-                // are not clipped by a far-away directional light origin leaf.
-                VectorCopy(tr.refdef.vieworg, inView.pvsOrigin);
+                // Keep gather/PVS anchor coherent with the matrix anchor for this shadow map.
+                VectorCopy(shadowMap->inverseDirectionalCenter, inView.pvsOrigin);
             } else {
                 VectorCopy(inView.orientation.origin, inView.pvsOrigin);
             }
@@ -1608,12 +1658,16 @@ void ShadowMapManager::SetupDirectionalLightMatrix(refLight_t* light, shadowMap_
 	vec3_t lightPos, up, right;
 	const bool inverseDirectional = (light->flags & REF_INVERSE_DLIGHT) != 0;
 
-	// Position the light far away in the opposite direction
-	// For inverse directional shadows, anchor around the camera to keep dynamic casters
-	// inside the orthographic volume. Regular directional lights keep existing behavior.
+	// Position the light far away in the opposite direction.
+	// For inverse directional shadows, use a stabilized center to reduce swimming/popping.
+	float orthoSize = inverseDirectional ? r_inverseGlobalOrthoSize.Get() : 2048.0f;
 	if (inverseDirectional) {
-		VectorMA(tr.refdef.vieworg, -2000.0f, lightDir, lightPos);
+		vec3_t center;
+		ComputeInverseDirectionalCenter( lightDir, orthoSize, static_cast<int>( shadowMap->size[0] ), center );
+		VectorCopy( center, shadowMap->inverseDirectionalCenter );
+		VectorMA(center, -2000.0f, lightDir, lightPos);
 	} else {
+		VectorClear( shadowMap->inverseDirectionalCenter );
 		VectorScale(lightDir, -2000.0f, lightPos);
 	}
 
@@ -1624,7 +1678,10 @@ void ShadowMapManager::SetupDirectionalLightMatrix(refLight_t* light, shadowMap_
 		Log::Warn("Invalid light direction vector (length < 0.001), using default down direction");
 		VectorSet(lightDir, 0.0f, 0.0f, -1.0f);
 		if (inverseDirectional) {
-			VectorMA(tr.refdef.vieworg, -2000.0f, lightDir, lightPos);
+			vec3_t center;
+			ComputeInverseDirectionalCenter( lightDir, orthoSize, static_cast<int>( shadowMap->size[0] ), center );
+			VectorCopy( center, shadowMap->inverseDirectionalCenter );
+			VectorMA(center, -2000.0f, lightDir, lightPos);
 		} else {
 			VectorScale(lightDir, -2000.0f, lightPos);
 		}
@@ -1638,9 +1695,8 @@ void ShadowMapManager::SetupDirectionalLightMatrix(refLight_t* light, shadowMap_
     MatrixLookAtRH(viewMatrix, lightPos, lightDir, up);
 
     // Fixed, stable orthographic projection for directional light
-    float size = inverseDirectional ? r_inverseGlobalOrthoSize.Get() : 2048.0f;
-    MatrixOrthogonalProjection(projectionMatrix, -size, size, -size, size, 1.0f, 4000.0f);
-    Log::Debug("Directional ortho (fixed): -/+ %.1f, near=1.0, far=4000.0", size);
+    MatrixOrthogonalProjection(projectionMatrix, -orthoSize, orthoSize, -orthoSize, orthoSize, 1.0f, 4000.0f);
+    Log::Debug("Directional ortho (fixed): -/+ %.1f, near=1.0, far=4000.0", orthoSize);
 
 	// Log matrix for debugging
 	Log::Debug("Directional light view matrix:");
