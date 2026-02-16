@@ -95,10 +95,18 @@ float SampleShadowEVSM32(sampler2D shadowMap, vec3 shadowCoord, float exponent, 
 	float z = inverseLight ? (1.0 - shadowCoord.z) : shadowCoord.z;
 	float posR = exp(exponent * z);
 	float negR = exp(-exponent * z);
-	// For the negative warp, the function is monotonically decreasing,
-	// so lit requires negR >= exp(-k*z_occ).
-	float litPos = posR <= texExp.x ? 1.0 : 0.0;
-	float litNeg = negR >= texExp.y ? 1.0 : 0.0;
+	float litPos;
+	float litNeg;
+	if (inverseLight) {
+		// In inverse mode we compare against z = (1 - depth), so lit when z_r >= z_occ.
+		// pos warp is increasing, neg warp is decreasing.
+		litPos = posR >= texExp.x ? 1.0 : 0.0;
+		litNeg = negR <= texExp.y ? 1.0 : 0.0;
+	} else {
+		// Regular depth mode: lit when z_r <= z_occ.
+		litPos = posR <= texExp.x ? 1.0 : 0.0;
+		litNeg = negR >= texExp.y ? 1.0 : 0.0;
+	}
 	return min(litPos, litNeg);
 }
 
