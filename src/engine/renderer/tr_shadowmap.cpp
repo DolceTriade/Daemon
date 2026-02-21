@@ -1347,10 +1347,13 @@ void ShadowMapManager::RenderShadowMaps() {
                     drawSurf = &backEnd.viewParms.drawSurfs[ i ];
                     if ( drawSurf->surface == nullptr ) continue;
 
-                    entity = drawSurf->entity;
-                    if ( (lightShadow->flags & (REF_RESTRICT_DLIGHT | REF_INVERSE_DLIGHT)) && entity == &tr.worldEntity ) {
-                        continue;
-                    }
+	                    entity = drawSurf->entity;
+	                    if ( entity && entity != &tr.worldEntity && ( entity->e.renderfx & RF_NOSHADOW ) ) {
+	                        continue;
+	                    }
+	                    if ( (lightShadow->flags & (REF_RESTRICT_DLIGHT | REF_INVERSE_DLIGHT)) && entity == &tr.worldEntity ) {
+	                        continue;
+	                    }
                     shader = drawSurf->shader;
                     lightmapNum = drawSurf->lightmapNum();
                     fogNum = drawSurf->fog;
