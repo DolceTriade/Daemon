@@ -1246,10 +1246,14 @@ void Render_lightMapping( shaderStage_t *pStage )
         // Shadow params
         vec4_t shadowParams;
         shadowParams[0] = r_shadowBias.Get();           // bias
-        shadowParams[1] = R_ComputeESMExponent( static_cast<shadowingMode_t>( r_shadows.Get() ), r_shadowESMExponent.Get() );
+		shadowParams[1] = R_ComputeESMExponent( static_cast<shadowingMode_t>( r_shadows.Get() ), r_shadowESMExponent.Get() );
 		shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
 		shadowParams[3] = r_shadowInverseESMScale.Get(); // inverse light exponent scale
-        gl_lightMappingShader->SetUniform_ShadowParams( shadowParams );
+	        gl_lightMappingShader->SetUniform_ShadowParams( shadowParams );
+		gl_lightMappingShader->SetUniform_ShadowInverseBiasScale( r_shadowInverseReceiverBiasScale.Get() );
+		gl_lightMappingShader->SetUniform_ShadowInverseNormalOffsetScale( r_shadowInverseNormalOffsetScale.Get() );
+		gl_lightMappingShader->SetUniform_RealtimeLightNormalScale( r_realtimeLightNormalScale.Get() );
+		gl_lightMappingShader->SetUniform_RealtimeLightSpecularScale( r_realtimeLightSpecularScale.Get() );
 
 		// Matrices & per-slice atlas data
 		const int maxShadowSlices = MAX_SHADOW_LIGHTS * MAX_SHADOW_CASCADES;

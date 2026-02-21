@@ -140,6 +140,14 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 		40.0f, 1.0f, 100.0f );
 	Cvar::Range<Cvar::Cvar<float>> r_shadowInverseESMScale( "r_shadowInverseESMScale", "ESM exponent multiplier for inverse lights", Cvar::NONE,
 		0.25f, 0.0f, 1.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_shadowInverseReceiverBiasScale( "r_shadowInverseReceiverBiasScale", "receiver bias scale for inverse shadows", Cvar::NONE,
+		0.25f, 0.0f, 2.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_shadowInverseNormalOffsetScale( "r_shadowInverseNormalOffsetScale", "normal-offset scale for inverse shadow receiver sampling", Cvar::NONE,
+		6.0f, 0.0f, 32.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_realtimeLightNormalScale( "r_realtimeLightNormalScale", "normal-map influence for realtime lights (0=geometric normal, 1=full normal map)", Cvar::NONE,
+		1.0f, 0.0f, 1.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_realtimeLightSpecularScale( "r_realtimeLightSpecularScale", "specular contribution scale for realtime lights", Cvar::NONE,
+		1.0f, 0.0f, 1.0f );
 	Cvar::Range<Cvar::Cvar<float>> r_shadowVSMBlur( "r_shadowVSMBlur", "VSM blur radius", Cvar::NONE,
 		2.0f, 0.0f, 8.0f );
 	Cvar::Range<Cvar::Cvar<float>> r_lightFalloffThreshold( "r_lightFalloffThreshold", "minimum per-channel light contribution before shadows fade out", Cvar::NONE,

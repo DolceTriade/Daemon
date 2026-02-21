@@ -28,6 +28,8 @@ This file is part of the Daemon BSD Source Code (Daemon Source Code).
 // Shadow atlas and parameters
 uniform sampler2D u_ShadowAtlas;
 uniform vec4 u_ShadowParams; // x: bias, y: ESM exponent, z: PCF filter size, w: unused
+uniform float u_ShadowInverseBiasScale;
+uniform float u_ShadowInverseNormalOffsetScale;
 
 // Shadow matrices (one 4x4 transform per light slice)
 uniform mat4 u_ShadowMatrices[MAX_SHADOW_SLICES]; // lightIndex * SHADOW_SLICES_PER_LIGHT + sliceIndex
@@ -230,7 +232,7 @@ int SelectOmniShadowFace(vec3 L) {
     return faceIndex;
 }
 
-float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lightIndex, float lightType, vec3 lightPosition) {
+float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, vec3 lightDir, int lightIndex, float lightType, vec3 lightPosition) {
     if (lightIndex < 0 || lightIndex >= MAX_SHADOW_LIGHTS) {
         return 1.0; // No shadow
     }
@@ -268,6 +270,8 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
 	if (matrixIndex < 0 || matrixIndex >= MAX_SHADOW_SLICES) {
 		return 1.0;
 	}
+	int lightFlags = int(u_ShadowLightInfo[lightIndex].w + 0.5);
+	bool inverseLight = (lightFlags & 1) != 0;
 
 	mat4 shadowMatrix = u_ShadowMatrices[matrixIndex];
     vec4 tile = u_ShadowTileInfo[matrixIndex];
@@ -275,17 +279,32 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
         return 1.0;
     }
 
+	vec3 receiverPos = worldPos;
+	// Experimental inverse-receiver tweak: pull the sample point slightly into the
+	// surface along its normal to reduce detached-looking contact on detailed surfaces.
+	if (inverseLight) {
+		float inverseNormalOffset = max(u_ShadowParams.x, 1e-6) * max(u_ShadowInverseNormalOffsetScale, 0.0);
+		receiverPos -= normalize(normal) * inverseNormalOffset;
+	}
+
 	// Transform world position to light space
-	vec4 lightSpacePos = shadowMatrix * vec4(worldPos, 1.0);
+	vec4 lightSpacePos = shadowMatrix * vec4(receiverPos, 1.0);
 	vec3 shadowCoord = lightSpacePos.xyz / lightSpacePos.w;
 
 	// Transform to [0,1] range
 	shadowCoord = shadowCoord * 0.5 + 0.5;
 
-	// Apply receiver bias and keep depth inside clip range so near-zero samples
+	// Apply slope-aware receiver bias and keep depth inside clip range so near-zero samples
 	// (common with point lights placed close to the caster) are not discarded.
-	float bias = u_ShadowParams.x;
-	shadowCoord.z = clamp(shadowCoord.z - bias, 0.0, 1.0);
+	float baseBias = u_ShadowParams.x;
+	float ndotl = clamp(dot(normalize(normal), normalize(lightDir)), 0.0, 1.0);
+	float slopeBias = baseBias * (1.0 - ndotl);
+	float receiverBias = baseBias + slopeBias;
+	// Inverse shadows tend to look detached more easily; keep their receiver bias tighter.
+	if (inverseLight) {
+		receiverBias *= max(u_ShadowInverseBiasScale, 0.0);
+	}
+	shadowCoord.z = clamp(shadowCoord.z - receiverBias, 0.0, 1.0);
 
 	// Allow a tiny epsilon around the border to avoid precision flicker at tile edges.
 	const float borderEps = 1e-6;
@@ -302,8 +321,6 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, int lig
 
 	// Sample shadow map with PCF
 	float exponent = u_ShadowParams.y;
-	int lightFlags = int(u_ShadowLightInfo[lightIndex].w + 0.5);
-	bool inverseLight = (lightFlags & 1) != 0;
 	if (inverseLight) {
 		exponent *= u_ShadowParams.w;
 	}

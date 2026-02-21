@@ -171,8 +171,10 @@ layout(std140) uniform u_Lights {
 #define GetLight( idx ) lights[idx]
 
 uniform int u_numLights;
+uniform float u_RealtimeLightNormalScale;
+uniform float u_RealtimeLightSpecularScale;
 
-void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 viewOrigin, vec3 viewDir, vec4 diffuse,
+void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 geometricNormal, vec3 viewOrigin, vec3 viewDir, vec4 diffuse,
 	vec4 material, inout vec4 color )
 {
 	Light light = GetLight( idx );
@@ -213,10 +215,12 @@ void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 vi
 #if defined(USE_SHADOW_MAPPING)
 	int shadowFlags = 0;
 #endif
+	float normalScale = clamp(u_RealtimeLightNormalScale, 0.0, 1.0);
+	vec3 dynamicNormal = normalize(mix(geometricNormal, normal, normalScale));
 	float shadowFactor = 1.0;
 #if defined(USE_SHADOW_MAPPING)
 	if (shadowSlot >= 0) {
-		shadowFactor = clamp(CalculateShadowFactor(P, viewOrigin, normal, shadowSlot, lightTypeFloat, light.center.xyz), 0.0, 1.0);
+		shadowFactor = clamp(CalculateShadowFactor(P, viewOrigin, dynamicNormal, L, shadowSlot, lightTypeFloat, light.center.xyz), 0.0, 1.0);
 		shadowFlags = int(u_ShadowLightInfo[shadowSlot].w + 0.5);
 	}
     int combinedFlags = shadowFlags | flagMask;
@@ -234,10 +238,10 @@ void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 vi
 		if (shadowSlot >= 0) {
 			float occlusion = clamp(1.0 - shadowFactor, 0.0, 1.0);
 			if (occlusion > 0.0) {
-				vec3 darkness = baseLightRGB * occlusion;
-				computeDeluxeLight(
-				    L, normal, viewDir, -darkness,
-				    diffuse, material, color );
+				// Apply inverse shadows as direct darkening so they are less sensitive
+				// to normal-map BRDF modulation on the receiver.
+				vec3 darkness = baseLightRGB * occlusion * diffuse.rgb;
+				color.rgb = max(color.rgb - darkness, vec3(0.0));
 			}
 		}
 		return;
@@ -245,9 +249,13 @@ void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 vi
 #endif
 
 	vec3 lightRGB = baseLightRGB * shadowFactor;
+	vec4 dynamicMaterial = material;
+#if !defined(USE_PHYSICAL_MAPPING) && defined(r_specularMapping)
+	dynamicMaterial.rgb *= clamp(u_RealtimeLightSpecularScale, 0.0, 1.0);
+#endif
     computeDeluxeLight(
-        L, normal, viewDir, lightRGB,
-        diffuse, material, color );
+        L, dynamicNormal, viewDir, lightRGB,
+        diffuse, dynamicMaterial, color );
 }
 
 const uint lightsPerLayer = 16u;
@@ -267,7 +275,7 @@ uint nextIdx( in uint count, in idxs_t idxs ) {
 	return ( idxs[count / 4u] >> ( 8u * ( count % 4u ) ) ) & 0xFFu;
 }
 
-void computeDynamicLights( vec3 P, vec3 normal, vec3 viewOrigin, vec3 viewDir, vec4 diffuse, vec4 material,
+void computeDynamicLights( vec3 P, vec3 normal, vec3 geometricNormal, vec3 viewOrigin, vec3 viewDir, vec4 diffuse, vec4 material,
 	inout vec4 color, in usampler3D u_LightTiles )
 {
 	if( u_numLights == 0 ) {
@@ -319,7 +327,7 @@ void computeDynamicLights( vec3 P, vec3 normal, vec3 viewOrigin, vec3 viewDir, v
 			}
 #endif
 
-			computeDynamicLight( idx, matchedSlot, P, normal, viewOrigin, viewDir, diffuse, material, color );
+			computeDynamicLight( idx, matchedSlot, P, normal, geometricNormal, viewOrigin, viewDir, diffuse, material, color );
 			lightCount++;
 		}
 		#if defined(r_showLightTiles)

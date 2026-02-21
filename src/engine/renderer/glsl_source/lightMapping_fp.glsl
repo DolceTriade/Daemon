@@ -202,7 +202,7 @@ void main()
 
 	// Blend dynamic lights.
 	#if defined(r_realtimeLighting)
-		computeDynamicLights(var_Position, normal, u_ViewOrigin, viewDir, diffuse, material, color, u_LightTiles);
+		computeDynamicLights(var_Position, normal, normalize(var_Normal), u_ViewOrigin, viewDir, diffuse, material, color, u_LightTiles);
 	#endif
 
 	// Add Rim Lighting to highlight the edges on model entities.

@@ -3391,6 +3391,66 @@ public:
 	}
 };
 
+class u_ShadowInverseBiasScale :
+	GLUniform1f
+{
+public:
+	u_ShadowInverseBiasScale( GLShader *shader ) :
+		GLUniform1f( shader, "u_ShadowInverseBiasScale" )
+	{
+	}
+
+	void SetUniform_ShadowInverseBiasScale( float value )
+	{
+		this->SetValue( value );
+	}
+};
+
+class u_ShadowInverseNormalOffsetScale :
+	GLUniform1f
+{
+public:
+	u_ShadowInverseNormalOffsetScale( GLShader *shader ) :
+		GLUniform1f( shader, "u_ShadowInverseNormalOffsetScale" )
+	{
+	}
+
+	void SetUniform_ShadowInverseNormalOffsetScale( float value )
+	{
+		this->SetValue( value );
+	}
+};
+
+class u_RealtimeLightNormalScale :
+	GLUniform1f
+{
+public:
+	u_RealtimeLightNormalScale( GLShader *shader ) :
+		GLUniform1f( shader, "u_RealtimeLightNormalScale" )
+	{
+	}
+
+	void SetUniform_RealtimeLightNormalScale( float value )
+	{
+		this->SetValue( value );
+	}
+};
+
+class u_RealtimeLightSpecularScale :
+	GLUniform1f
+{
+public:
+	u_RealtimeLightSpecularScale( GLShader *shader ) :
+		GLUniform1f( shader, "u_RealtimeLightSpecularScale" )
+	{
+	}
+
+	void SetUniform_RealtimeLightSpecularScale( float value )
+	{
+		this->SetValue( value );
+	}
+};
+
 class GLShader_generic :
 	public GLShader,
 	public u_ColorMap,
@@ -3466,6 +3526,10 @@ class GLShader_lightMapping :
     public u_ShadowLightInfo,
     public u_CascadeSplits,
     public u_ShadowTechnique,
+    public u_ShadowInverseBiasScale,
+    public u_ShadowInverseNormalOffsetScale,
+    public u_RealtimeLightNormalScale,
+    public u_RealtimeLightSpecularScale,
     public u_TextureMatrix,
     public u_SpecularExponent,
     public u_ColorModulateColorGen_Float,
@@ -3547,6 +3611,10 @@ class GLShader_lightMappingMaterial :
 	public u_ShadowLightInfo,
 	public u_CascadeSplits,
 	public u_ShadowTechnique,
+	public u_ShadowInverseBiasScale,
+	public u_ShadowInverseNormalOffsetScale,
+	public u_RealtimeLightNormalScale,
+	public u_RealtimeLightSpecularScale,
 	public GLDeformStage,
 	public GLCompileMacro_USE_BSP_SURFACE,
 	public GLCompileMacro_USE_DELUXE_MAPPING,

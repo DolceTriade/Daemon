@@ -221,6 +221,9 @@ void UpdateSurfaceDataLightMapping( uint32_t* materials, shaderStage_t* pStage, 
 		gl_lightMappingShaderMaterial->SetUniform_SpecularExponent( specExpMin, specExpMax );
 	}
 
+	gl_lightMappingShaderMaterial->SetUniform_RealtimeLightNormalScale( r_realtimeLightNormalScale.Get() );
+	gl_lightMappingShaderMaterial->SetUniform_RealtimeLightSpecularScale( r_realtimeLightSpecularScale.Get() );
+
     // Shadow mapping uniforms (material system path)
     if ( R_ShadowMappingEnabled() ) {
         // Params
@@ -228,8 +231,10 @@ void UpdateSurfaceDataLightMapping( uint32_t* materials, shaderStage_t* pStage, 
         shadowParams[0] = r_shadowBias.Get();           // bias
         shadowParams[1] = R_ComputeESMExponent( static_cast<shadowingMode_t>( r_shadows.Get() ), r_shadowESMExponent.Get() );
         shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
-        shadowParams[3] = r_shadowInverseESMScale.Get();
-        gl_lightMappingShaderMaterial->SetUniform_ShadowParams( shadowParams );
+	        shadowParams[3] = r_shadowInverseESMScale.Get();
+	        gl_lightMappingShaderMaterial->SetUniform_ShadowParams( shadowParams );
+	        gl_lightMappingShaderMaterial->SetUniform_ShadowInverseBiasScale( r_shadowInverseReceiverBiasScale.Get() );
+	        gl_lightMappingShaderMaterial->SetUniform_ShadowInverseNormalOffsetScale( r_shadowInverseNormalOffsetScale.Get() );
 
         // Matrices & per-slice atlas data
         const int maxShadowSlices = MAX_SHADOW_LIGHTS * MAX_SHADOW_CASCADES;
