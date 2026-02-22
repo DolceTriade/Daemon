@@ -1766,8 +1766,8 @@ void ShadowMapManager::SetupDirectionalLightMatrix(refLight_t* light, shadowMap_
 
 	const int numCascades = inverseDirectional ? r_inverseGlobalCascades.Get() : r_shadowCascades.Get();
 	if (inverseDirectional && numCascades > 1) {
-		// Stable inverse cascades: fixed split thresholds + per-cascade ortho growth,
-		// all anchored by the same stabilized center logic.
+		// Inverse directional cascades: keep a stabilized local anchor for near coverage,
+		// then offset farther cascades forward so each cascade covers different ground.
 		int cascade = std::clamp(shadowMap->cascadeIndex, 0, numCascades - 1);
 		float baseSize = std::max(32.0f, r_inverseGlobalOrthoSize.Get());
 		float orthoScale = std::max(1.01f, r_inverseGlobalCascadeOrthoScale.Get());
@@ -1775,29 +1775,40 @@ void ShadowMapManager::SetupDirectionalLightMatrix(refLight_t* light, shadowMap_
 		float rangeScale = std::max(1.01f, r_inverseGlobalCascadeRangeScale.Get());
 
 		orthoSize = baseSize * powf(orthoScale, static_cast<float>(cascade));
-		shadowMap->cascadeSplit = baseRange * powf(rangeScale, static_cast<float>(cascade));
+		std::vector<float> splits(numCascades, baseRange);
+		ComputeInverseCascadeSplits(numCascades, baseRange, rangeScale, splits.data());
+		float splitNear = (cascade == 0) ? 1.0f : splits[cascade - 1];
+		float splitFar = splits[cascade];
+		shadowMap->cascadeSplit = splitFar;
 
-		ComputeInverseDirectionalCenter(lightDir, orthoSize, static_cast<int>(shadowMap->size[0]), center);
+		vec3_t anchor;
+		ComputeInverseDirectionalCenter(lightDir, orthoSize, static_cast<int>(shadowMap->size[0]), anchor);
+		VectorCopy(anchor, center);
+
+		if (cascade > 0) {
+			vec3_t forward;
+			VectorCopy(tr.refdef.viewaxis[0], forward);
+			if (VectorNormalize(forward) > 0.0f) {
+				float centerOffset = splitNear + 0.5f * (splitFar - splitNear);
+				VectorMA(center, centerOffset, forward, center);
+			}
+		}
+
+		if (r_inverseGlobalSnap.Get()) {
+			SnapCenterToLightTexel(lightDir, orthoSize, static_cast<int>(shadowMap->size[0]), center);
+		}
 		VectorCopy(center, shadowMap->inverseDirectionalCenter);
 		VectorMA(center, -2000.0f, lightDir, lightPos);
 
 		MatrixLookAtRH(viewMatrix, lightPos, lightDir, up);
 		MatrixOrthogonalProjection(projectionMatrix, -orthoSize, orthoSize, -orthoSize, orthoSize, 1.0f, 4000.0f);
-		Log::Debug("Inverse directional cascade %d/%d ortho=%.1f splitFar=%.1f",
-			cascade + 1, numCascades, orthoSize, shadowMap->cascadeSplit);
+		Log::Debug("Inverse directional cascade %d/%d ortho=%.1f nearSplit=%.1f farSplit=%.1f",
+			cascade + 1, numCascades, orthoSize, splitNear, splitFar);
 	} else if (numCascades > 1) {
 		// Build camera-frustum slice bounds for this cascade.
 		float nearClip = 1.0f;
 		std::vector<float> splits(numCascades, 4000.0f);
-		if (inverseDirectional) {
-			ComputeInverseCascadeSplits(
-				numCascades,
-				r_inverseGlobalCascadeBaseRange.Get(),
-				r_inverseGlobalCascadeRangeScale.Get(),
-				splits.data());
-		} else {
-			ComputeDirectionalCascadeSplits(numCascades, nearClip, 4000.0f, splits.data());
-		}
+		ComputeDirectionalCascadeSplits(numCascades, nearClip, 4000.0f, splits.data());
 
 		int cascade = std::clamp(shadowMap->cascadeIndex, 0, numCascades - 1);
 		float splitNear = (cascade == 0) ? nearClip : splits[cascade - 1];
