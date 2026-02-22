@@ -30,6 +30,8 @@ uniform sampler2D u_ShadowAtlas;
 uniform vec4 u_ShadowParams; // x: bias, y: ESM exponent, z: PCF filter size, w: unused
 uniform float u_ShadowInverseBiasScale;
 uniform float u_ShadowInverseNormalOffsetScale;
+uniform float u_ShadowInverseDepthSeparation;
+uniform float u_ShadowInverseSelfRejectDepth;
 
 // Shadow matrices (one 4x4 transform per light slice)
 uniform mat4 u_ShadowMatrices[MAX_SHADOW_SLICES]; // lightIndex * SHADOW_SLICES_PER_LIGHT + sliceIndex
@@ -56,6 +58,15 @@ float SampleShadowESM16(sampler2D shadowMap, vec3 shadowCoord, float exponent, b
 	float stored = texture(shadowMap, shadowCoord.xy).r;
 	float esm;
 	if (inverseLight) {
+		float k = max(exponent, 1e-6);
+		float zOcc = 1.0 - clamp(log(max(stored, 1e-6)) / k, 0.0, 1.0);
+		float dz = shadowCoord.z - zOcc;
+		float selfReject = max(u_ShadowInverseSelfRejectDepth, 0.0);
+		// Reject only near-equal behind-occluder depths (typical self-hit window).
+		// Broad <= tests erase valid contact shadows.
+		if (dz > 0.0 && dz < selfReject) {
+			return 1.0;
+		}
 		float receiverExp = exp(exponent * (1.0 - shadowCoord.z));
 		float denom = max(stored, 1e-6);
 		esm = receiverExp / denom;
@@ -94,6 +105,16 @@ float SampleShadowVSM(sampler2D shadowMap, vec3 shadowCoord) {
 // EVSM32 shadow sampling
 float SampleShadowEVSM32(sampler2D shadowMap, vec3 shadowCoord, float exponent, bool inverseLight) {
 	vec2 texExp = texture(shadowMap, shadowCoord.xy).rg; // [exp(+k*z_occ), exp(-k*z_occ)]
+	if (inverseLight) {
+		float k = max(exponent, 1e-6);
+		float sampleDepthOcc = clamp(log(max(texExp.x, 1e-6)) / k, 0.0, 1.0);
+		float zOcc = 1.0 - sampleDepthOcc;
+		float dz = shadowCoord.z - zOcc;
+		float selfReject = max(u_ShadowInverseSelfRejectDepth, 0.0);
+		if (dz > 0.0 && dz < selfReject) {
+			return 1.0;
+		}
+	}
 	float z = inverseLight ? (1.0 - shadowCoord.z) : shadowCoord.z;
 	float posR = exp(exponent * z);
 	float negR = exp(-exponent * z);
@@ -305,6 +326,9 @@ float CalculateShadowFactor(vec3 worldPos, vec3 viewOrigin, vec3 normal, vec3 li
 		receiverBias *= max(u_ShadowInverseBiasScale, 0.0);
 	}
 	shadowCoord.z = clamp(shadowCoord.z - receiverBias, 0.0, 1.0);
+	if (inverseLight) {
+		shadowCoord.z = clamp(shadowCoord.z - max(u_ShadowInverseDepthSeparation, 0.0), 0.0, 1.0);
+	}
 
 	// Allow a tiny epsilon around the border to avoid precision flicker at tile edges.
 	const float borderEps = 1e-6;

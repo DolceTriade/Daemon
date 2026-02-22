@@ -173,6 +173,7 @@ layout(std140) uniform u_Lights {
 uniform int u_numLights;
 uniform float u_RealtimeLightNormalScale;
 uniform float u_RealtimeLightSpecularScale;
+uniform float u_ShadowInverseOcclusionThreshold;
 
 void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 geometricNormal, vec3 viewOrigin, vec3 viewDir, vec4 diffuse,
 	vec4 material, inout vec4 color )
@@ -217,10 +218,14 @@ void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 ge
 #endif
 	float normalScale = clamp(u_RealtimeLightNormalScale, 0.0, 1.0);
 	vec3 dynamicNormal = normalize(mix(geometricNormal, normal, normalScale));
+	vec3 shadowNormal = dynamicNormal;
 	float shadowFactor = 1.0;
 #if defined(USE_SHADOW_MAPPING)
+	if ((flagMask & REF_INVERSE_DLIGHT) != 0) {
+		shadowNormal = normalize(geometricNormal);
+	}
 	if (shadowSlot >= 0) {
-		shadowFactor = clamp(CalculateShadowFactor(P, viewOrigin, dynamicNormal, L, shadowSlot, lightTypeFloat, light.center.xyz), 0.0, 1.0);
+		shadowFactor = clamp(CalculateShadowFactor(P, viewOrigin, shadowNormal, L, shadowSlot, lightTypeFloat, light.center.xyz), 0.0, 1.0);
 		shadowFlags = int(u_ShadowLightInfo[shadowSlot].w + 0.5);
 	}
     int combinedFlags = shadowFlags | flagMask;
@@ -237,6 +242,8 @@ void computeDynamicLight( uint idx, int shadowSlot, vec3 P, vec3 normal, vec3 ge
 	if (inverseLight) {
 		if (shadowSlot >= 0) {
 			float occlusion = clamp(1.0 - shadowFactor, 0.0, 1.0);
+			float occlusionThreshold = clamp(u_ShadowInverseOcclusionThreshold, 0.0, 0.99);
+			occlusion = max(occlusion - occlusionThreshold, 0.0) / (1.0 - occlusionThreshold);
 			if (occlusion > 0.0) {
 				// Apply inverse shadows as direct darkening so they are less sensitive
 				// to normal-map BRDF modulation on the receiver.

@@ -1279,6 +1279,7 @@ void ShadowMapManager::RenderShadowMaps() {
     GL_ClearColor(1.0f, 1.0f, 1.0f, 1.0f);
     GL_ClearDepth(1.0f);
     glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT );
+	GL_Cull( cullType_t::CT_BACK_SIDED );
 
 	Log::Debug("Cleared shadow atlas with white color (1,1,1,1) and depth=1.0 - this should happen EVERY frame");
 

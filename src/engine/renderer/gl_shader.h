@@ -3421,6 +3421,51 @@ public:
 	}
 };
 
+class u_ShadowInverseDepthSeparation :
+	GLUniform1f
+{
+public:
+	u_ShadowInverseDepthSeparation( GLShader *shader ) :
+		GLUniform1f( shader, "u_ShadowInverseDepthSeparation" )
+	{
+	}
+
+	void SetUniform_ShadowInverseDepthSeparation( float value )
+	{
+		this->SetValue( value );
+	}
+};
+
+class u_ShadowInverseOcclusionThreshold :
+	GLUniform1f
+{
+public:
+	u_ShadowInverseOcclusionThreshold( GLShader *shader ) :
+		GLUniform1f( shader, "u_ShadowInverseOcclusionThreshold" )
+	{
+	}
+
+	void SetUniform_ShadowInverseOcclusionThreshold( float value )
+	{
+		this->SetValue( value );
+	}
+};
+
+class u_ShadowInverseSelfRejectDepth :
+	GLUniform1f
+{
+public:
+	u_ShadowInverseSelfRejectDepth( GLShader *shader ) :
+		GLUniform1f( shader, "u_ShadowInverseSelfRejectDepth" )
+	{
+	}
+
+	void SetUniform_ShadowInverseSelfRejectDepth( float value )
+	{
+		this->SetValue( value );
+	}
+};
+
 class u_RealtimeLightNormalScale :
 	GLUniform1f
 {
@@ -3528,6 +3573,9 @@ class GLShader_lightMapping :
     public u_ShadowTechnique,
     public u_ShadowInverseBiasScale,
     public u_ShadowInverseNormalOffsetScale,
+    public u_ShadowInverseDepthSeparation,
+    public u_ShadowInverseOcclusionThreshold,
+    public u_ShadowInverseSelfRejectDepth,
     public u_RealtimeLightNormalScale,
     public u_RealtimeLightSpecularScale,
     public u_TextureMatrix,
@@ -3613,6 +3661,9 @@ class GLShader_lightMappingMaterial :
 	public u_ShadowTechnique,
 	public u_ShadowInverseBiasScale,
 	public u_ShadowInverseNormalOffsetScale,
+	public u_ShadowInverseDepthSeparation,
+	public u_ShadowInverseOcclusionThreshold,
+	public u_ShadowInverseSelfRejectDepth,
 	public u_RealtimeLightNormalScale,
 	public u_RealtimeLightSpecularScale,
 	public GLDeformStage,

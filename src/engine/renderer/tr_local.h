@@ -2823,6 +2823,10 @@ struct shadowData_t {
 	extern Cvar::Range<Cvar::Cvar<float>> r_shadowInverseESMScale;
 	extern Cvar::Range<Cvar::Cvar<float>> r_shadowInverseReceiverBiasScale;
 	extern Cvar::Range<Cvar::Cvar<float>> r_shadowInverseNormalOffsetScale;
+	extern Cvar::Range<Cvar::Cvar<float>> r_shadowInverseDepthSeparation;
+	extern Cvar::Range<Cvar::Cvar<int>> r_shadowInverseCullMode;
+	extern Cvar::Range<Cvar::Cvar<float>> r_shadowInverseOcclusionThreshold;
+	extern Cvar::Range<Cvar::Cvar<float>> r_shadowInverseSelfRejectDepth;
 	extern Cvar::Range<Cvar::Cvar<float>> r_realtimeLightNormalScale;
 	extern Cvar::Range<Cvar::Cvar<float>> r_realtimeLightSpecularScale;
 	extern Cvar::Range<Cvar::Cvar<float>> r_shadowVSMBlur;

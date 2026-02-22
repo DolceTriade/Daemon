@@ -144,6 +144,14 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 		0.25f, 0.0f, 2.0f );
 	Cvar::Range<Cvar::Cvar<float>> r_shadowInverseNormalOffsetScale( "r_shadowInverseNormalOffsetScale", "normal-offset scale for inverse shadow receiver sampling", Cvar::NONE,
 		6.0f, 0.0f, 32.0f );
+	Cvar::Range<Cvar::Cvar<float>> r_shadowInverseDepthSeparation( "r_shadowInverseDepthSeparation", "extra receiver depth separation for inverse shadows", Cvar::NONE,
+		0.002f, 0.0f, 0.05f );
+	Cvar::Range<Cvar::Cvar<int>> r_shadowInverseCullMode( "r_shadowInverseCullMode", "inverse shadow depth culling mode (0=two-sided, 1=front, 2=back)", Cvar::NONE,
+		1, 0, 2 );
+	Cvar::Range<Cvar::Cvar<float>> r_shadowInverseOcclusionThreshold( "r_shadowInverseOcclusionThreshold", "minimum inverse occlusion before darkening (suppresses acne speckle)", Cvar::NONE,
+		0.03f, 0.0f, 0.5f );
+	Cvar::Range<Cvar::Cvar<float>> r_shadowInverseSelfRejectDepth( "r_shadowInverseSelfRejectDepth", "inverse self-shadow rejection depth epsilon in light space", Cvar::NONE,
+		0.002f, 0.0f, 0.05f );
 	Cvar::Range<Cvar::Cvar<float>> r_realtimeLightNormalScale( "r_realtimeLightNormalScale", "normal-map influence for realtime lights (0=geometric normal, 1=full normal map)", Cvar::NONE,
 		1.0f, 0.0f, 1.0f );
 	Cvar::Range<Cvar::Cvar<float>> r_realtimeLightSpecularScale( "r_realtimeLightSpecularScale", "specular contribution scale for realtime lights", Cvar::NONE,

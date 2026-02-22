@@ -1249,9 +1249,12 @@ void Render_lightMapping( shaderStage_t *pStage )
 		shadowParams[1] = R_ComputeESMExponent( static_cast<shadowingMode_t>( r_shadows.Get() ), r_shadowESMExponent.Get() );
 		shadowParams[2] = r_shadowPCF.Get();            // PCF filter size
 		shadowParams[3] = r_shadowInverseESMScale.Get(); // inverse light exponent scale
-	        gl_lightMappingShader->SetUniform_ShadowParams( shadowParams );
+		gl_lightMappingShader->SetUniform_ShadowParams( shadowParams );
 		gl_lightMappingShader->SetUniform_ShadowInverseBiasScale( r_shadowInverseReceiverBiasScale.Get() );
 		gl_lightMappingShader->SetUniform_ShadowInverseNormalOffsetScale( r_shadowInverseNormalOffsetScale.Get() );
+		gl_lightMappingShader->SetUniform_ShadowInverseDepthSeparation( r_shadowInverseDepthSeparation.Get() );
+		gl_lightMappingShader->SetUniform_ShadowInverseOcclusionThreshold( r_shadowInverseOcclusionThreshold.Get() );
+		gl_lightMappingShader->SetUniform_ShadowInverseSelfRejectDepth( r_shadowInverseSelfRejectDepth.Get() );
 		gl_lightMappingShader->SetUniform_RealtimeLightNormalScale( r_realtimeLightNormalScale.Get() );
 		gl_lightMappingShader->SetUniform_RealtimeLightSpecularScale( r_realtimeLightSpecularScale.Get() );
 
@@ -2108,9 +2111,18 @@ void Tess_StageIteratorShadowDepth()
 		Tess_UpdateVBOs();
 	}
 
-	// Set face culling for shadow rendering (inverse lights need two-sided rendering)
-	cullType_t cullMode = ( backEnd.shadowLightFlags & REF_INVERSE_DLIGHT ) ?
-		cullType_t::CT_TWO_SIDED : cullType_t::CT_FRONT_SIDED;
+	// Set face culling for shadow rendering.
+	cullType_t cullMode = cullType_t::CT_FRONT_SIDED;
+	if ( backEnd.shadowLightFlags & REF_INVERSE_DLIGHT )
+	{
+		switch ( r_shadowInverseCullMode.Get() )
+		{
+			default:
+			case 0: cullMode = cullType_t::CT_TWO_SIDED; break;
+			case 1: cullMode = cullType_t::CT_FRONT_SIDED; break;
+			case 2: cullMode = cullType_t::CT_BACK_SIDED; break;
+		}
+	}
 	GL_Cull( cullMode );
 
 	// Set vertex attributes needed for shadow depth rendering

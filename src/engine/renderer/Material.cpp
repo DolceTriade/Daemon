@@ -235,6 +235,9 @@ void UpdateSurfaceDataLightMapping( uint32_t* materials, shaderStage_t* pStage, 
 	        gl_lightMappingShaderMaterial->SetUniform_ShadowParams( shadowParams );
 	        gl_lightMappingShaderMaterial->SetUniform_ShadowInverseBiasScale( r_shadowInverseReceiverBiasScale.Get() );
 	        gl_lightMappingShaderMaterial->SetUniform_ShadowInverseNormalOffsetScale( r_shadowInverseNormalOffsetScale.Get() );
+	        gl_lightMappingShaderMaterial->SetUniform_ShadowInverseDepthSeparation( r_shadowInverseDepthSeparation.Get() );
+	        gl_lightMappingShaderMaterial->SetUniform_ShadowInverseOcclusionThreshold( r_shadowInverseOcclusionThreshold.Get() );
+	        gl_lightMappingShaderMaterial->SetUniform_ShadowInverseSelfRejectDepth( r_shadowInverseSelfRejectDepth.Get() );
 
         // Matrices & per-slice atlas data
         const int maxShadowSlices = MAX_SHADOW_LIGHTS * MAX_SHADOW_CASCADES;
