@@ -146,6 +146,7 @@ public:
 		std::mutex mutex;
 		std::condition_variable condition;
 		Sys::DynamicLib sharedLib;
+		std::string copiedModulePath;
 		bool running;
 
 		InProcessInfo()

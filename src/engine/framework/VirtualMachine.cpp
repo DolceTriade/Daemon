@@ -555,19 +555,45 @@ static std::pair<Sys::OSHandle, IPC::Socket> CreateNativeVM(std::pair<IPC::Socke
 	return InternalLoadModule(std::move(pair), args.data(), true);
 }
 
+static std::string PrepareInProcessNativeVMPath(Str::StringRef sourcePath, Str::StringRef name, VM::VMBase::InProcessInfo& inProcess) {
+	inProcess.copiedModulePath.clear();
+
+#ifdef __linux__
+	static std::atomic<uint64_t> uniqueId(0);
+
+	std::string tempPath = FS::Path::Build(
+		FS::DefaultTempPath(),
+		Str::Format("daemon-%s-%d-%d%s", name, static_cast<int>(getpid()), ++uniqueId, DLL_EXT));
+
+	try {
+		FS::File in = FS::RawPath::OpenRead(sourcePath);
+		FS::File out = FS::RawPath::OpenWrite(tempPath);
+		in.CopyTo(out);
+		out.Close();
+		inProcess.copiedModulePath = tempPath;
+		return tempPath;
+	} catch (std::system_error& err) {
+		Sys::Drop("VM: Failed to create temporary copy of %s: %s", sourcePath, err.what());
+	}
+#endif
+
+	return sourcePath;
+}
+
 static IPC::Socket CreateInProcessNativeVM(std::pair<IPC::Socket, IPC::Socket> pair, Str::StringRef name, VM::VMBase::InProcessInfo& inProcess) {
 	std::string filename = FS::Path::Build(FS::GetLibPath(), name + "-native-dll" + DLL_EXT);
+	std::string loadPath = PrepareInProcessNativeVMPath(filename, name, inProcess);
 
-	Log::Notice("Loading VM module %s...", filename.c_str());
+	Log::Notice("Loading VM module %s...", loadPath.c_str());
 
 	std::string errorString;
-	inProcess.sharedLib = Sys::DynamicLib::Open(filename, errorString);
+	inProcess.sharedLib = Sys::DynamicLib::Open(loadPath, errorString);
 	if (!inProcess.sharedLib)
-		Sys::Drop("VM: Failed to load shared library VM %s: %s", filename, errorString);
+		Sys::Drop("VM: Failed to load shared library VM %s: %s", loadPath, errorString);
 
 	auto vmMain = inProcess.sharedLib.LoadSym<void(Sys::OSHandle)>("vmMain", errorString);
 	if (!vmMain)
-		Sys::Drop("VM: Could not find vmMain function in %s: %s", filename, errorString);
+		Sys::Drop("VM: Could not find vmMain function in %s: %s", loadPath, errorString);
 
 	Sys::OSHandle vmSocketArg = pair.second.ReleaseHandle();
 	inProcess.running = true;
@@ -692,6 +718,15 @@ void VMBase::FreeInProcessVM() {
 	}
 
 	inProcess.sharedLib.Close();
+	if (!inProcess.copiedModulePath.empty()) {
+		std::error_code err;
+		FS::RawPath::DeleteFile(inProcess.copiedModulePath, err);
+		if (err) {
+			Log::Warn("Failed to delete temporary VM module %s: %s",
+			          inProcess.copiedModulePath.c_str(), err.message().c_str());
+		}
+		inProcess.copiedModulePath.clear();
+	}
 	inProcess.running = false;
 }
 
@@ -719,8 +754,18 @@ void VMBase::Free()
 		syscallLogFile.Close(err);
 	}
 
-	if (!IsActive())
+	if (!IsActive()) {
+		if (!inProcess.copiedModulePath.empty()) {
+			std::error_code err;
+			FS::RawPath::DeleteFile(inProcess.copiedModulePath, err);
+			if (err) {
+				Log::Warn("Failed to delete temporary VM module %s: %s",
+				          inProcess.copiedModulePath.c_str(), err.message().c_str());
+			}
+			inProcess.copiedModulePath.clear();
+		}
 		return;
+	}
 
 	// First send a message signaling an exit to the VM
 	// then delete the socket. This is needed because
