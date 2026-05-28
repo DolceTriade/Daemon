@@ -62,6 +62,7 @@ Cvar::Cvar<int> sv_timeout("sv_timeout", "seconds without connectivity after whi
 Cvar::Cvar<int> sv_zombietime("sv_zombietime", "seconds without messages after which to recycle client slot", Cvar::NONE, 2);
 Cvar::Cvar<std::string> sv_privatePassword("sv_privatePassword", "password guarding private server slots", Cvar::NONE, "");
 Cvar::Cvar<bool> sv_allowDownload("sv_allowDownload", "let clients download missing paks", Cvar::NONE, true);
+Cvar::Cvar<bool> sv_udpDownload("sv_udpDownload", "send missing paks to clients over the legacy UDP download channel", Cvar::NONE, true);
 Cvar::Range<Cvar::Cvar<int>> sv_maxClients("sv_maxclients",
 	"max number of players on the server", Cvar::SERVERINFO, 20, 1, MAX_CLIENTS);
 
