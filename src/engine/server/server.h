@@ -289,6 +289,7 @@ extern Cvar::Cvar<int> sv_timeout;
 extern Cvar::Cvar<int> sv_zombietime;
 extern Cvar::Cvar<std::string> sv_privatePassword;
 extern Cvar::Cvar<bool> sv_allowDownload;
+extern Cvar::Cvar<bool> sv_udpDownload;
 extern Cvar::Range<Cvar::Cvar<int>> sv_maxClients;
 
 extern Cvar::Range<Cvar::Cvar<int>> sv_privateClients;
