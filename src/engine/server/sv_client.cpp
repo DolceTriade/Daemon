@@ -823,6 +823,18 @@ void SV_WriteDownloadToClient( client_t *cl, msg_t *msg )
 			}
 		}
 
+		if ( !sv_udpDownload.Get() )
+		{
+			Log::Notice( "clientDownload: %d : \"%s\" UDP download disabled", ( int )( cl - svs.clients ), cl->downloadName );
+			Com_sprintf( errorMessage, sizeof( errorMessage ),
+			             "Could not download \"%s\" because UDP autodownloading is disabled on the server.\n\n"
+			             "You will need to get this file elsewhere before you can connect to this server.\n",
+			             cl->downloadName );
+			SV_BadDownload( cl, msg );
+			MSG_WriteString( msg, errorMessage );
+			return;
+		}
+
 		// find file
 		cl->bWWWDl = false;
 		std::string name, version;
