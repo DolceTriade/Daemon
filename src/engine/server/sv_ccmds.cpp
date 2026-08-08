@@ -210,6 +210,12 @@ static void SV_MapRestart_f()
 
 		isBot = SV_IsBot(client);
 
+		// Pre-restart reliable commands belong to the old world state. If a client
+		// triggers a restart before acknowledging them, keeping them queued can
+		// overflow the reliable command window before "map_restart" is delivered.
+		client->reliableAcknowledge = client->reliableSequence;
+		client->reliableSent = client->reliableSequence;
+
 		// add the map_restart command
 		SV_AddServerCommand( client, "map_restart\n" );
 
