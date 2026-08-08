@@ -271,17 +271,20 @@ void SV_DropClient( client_t *drop, const char *reason )
 		return; // already dropped
 	}
 	bool isBot = SV_IsBot( drop );
+	int clientNum = drop - svs.clients;
+
+	Log::Notice( "Dropping client %d (%s): %s", clientNum, drop->name, reason );
 
 	Log::Debug( "Going to CS_ZOMBIE for %s", drop->name );
 	drop->state = clientState_t::CS_ZOMBIE; // become free in a few seconds
 
 	// call the prog function for removing a client
 	// this will remove the body, among other things
-	gvm.GameClientDisconnect( drop - svs.clients );
+	gvm.GameClientDisconnect( clientNum );
 
 	if ( isBot )
 	{
-		SV_BotFreeClient( drop - svs.clients );
+		SV_BotFreeClient( clientNum );
 	}
 	else
 	{
