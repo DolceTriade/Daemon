@@ -210,14 +210,27 @@ static void SV_MapRestart_f()
 
 		isBot = SV_IsBot(client);
 
-		// Pre-restart reliable commands belong to the old world state. If a client
-		// triggers a restart before acknowledging them, keeping them queued can
-		// overflow the reliable command window before "map_restart" is delivered.
-		client->reliableAcknowledge = client->reliableSequence;
-		client->reliableSent = client->reliableSequence;
+		// If the unacknowledged command backlog is large enough that the restart
+		// chatter would overflow the reliable command window, discard it: the
+		// pre-restart commands belong to the old world state, and the client is
+		// either caught up (ack still in flight) or too far behind to recover
+		// anyway. Otherwise the backlog must be kept and resent in order,
+		// because the client drops if the command sequence is not consecutive.
+		if ( client->reliableSequence - client->reliableAcknowledge > MAX_RELIABLE_COMMANDS - 64 )
+		{
+			client->reliableAcknowledge = client->reliableSequence;
+			client->reliableSent = client->reliableSequence;
+		}
 
 		// add the map_restart command
 		SV_AddServerCommand( client, "map_restart\n" );
+
+		// adding the command may have overflowed the client's reliable
+		// command window and dropped it
+		if ( client->state < clientState_t::CS_CONNECTED )
+		{
+			continue;
+		}
 
 		// connect the client again, without the firstTime flag
 		denied = gvm.GameClientConnect( reason, sizeof( reason ), i, false, isBot );
@@ -233,6 +246,12 @@ static void SV_MapRestart_f()
 				Log::Notice( "SV_MapRestart_f: dropped client %i: denied!", i );
 			}
 
+			continue;
+		}
+
+		// the game may have dropped the client during connect
+		if ( client->state < clientState_t::CS_CONNECTED )
+		{
 			continue;
 		}
 
