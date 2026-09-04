@@ -625,19 +625,34 @@ void Con_DrawInput( int linePosition, float overrideAlpha )
 	char    prompt[ MAX_STRING_CHARS ];
 	qtime_t realtime;
 
-	Com_RealTime( &realtime );
-	Com_sprintf( prompt,  sizeof( prompt ), "^0[^3%02d%c%02d^0]^* %s", realtime.tm_hour, ( realtime.tm_sec & 1 ) ? ':' : ' ', realtime.tm_min, con_prompt.Get().c_str() );
-
 	Color::Color color = console_color;
 	color.SetAlpha( consoleState.currentAlphaFactor * overrideAlpha );
 
-	SCR_DrawSmallStringExt( consoleState.margin.sides + consoleState.padding.sides, linePosition, prompt, color, false, false );
+	if ( g_consoleField.IsReverseSearchActive() )
+	{
+		// Show reverse search prompt: (reverse-i-search)`pattern`:
+		Com_sprintf( prompt, sizeof( prompt ), "(reverse-i-search)`%s`:", g_consoleField.GetSearchPattern().c_str() );
+		SCR_DrawSmallStringExt( consoleState.margin.sides + consoleState.padding.sides, linePosition, prompt, color, false, true );
 
-	std::string decoloredPrompt = Color::StripColors( prompt );
-	Field_Draw( g_consoleField,
-		consoleState.margin.sides + consoleState.padding.sides +
-			SCR_ConsoleFontStringWidth( decoloredPrompt.c_str(), decoloredPrompt.size() ),
-		linePosition, true, true, color.Alpha() );
+		std::string decoloredPrompt = prompt;
+		Field_Draw( g_consoleField,
+			consoleState.margin.sides + consoleState.padding.sides +
+				SCR_ConsoleFontStringWidth( decoloredPrompt.c_str(), decoloredPrompt.size() ),
+			linePosition, true, true, color.Alpha() );
+	}
+	else
+	{
+		Com_RealTime( &realtime );
+		Com_sprintf( prompt,  sizeof( prompt ), "^0[^3%02d%c%02d^0]^* %s", realtime.tm_hour, ( realtime.tm_sec & 1 ) ? ':' : ' ', realtime.tm_min, con_prompt.Get().c_str() );
+
+		SCR_DrawSmallStringExt( consoleState.margin.sides + consoleState.padding.sides, linePosition, prompt, color, false, false );
+
+		std::string decoloredPrompt = Color::StripColors( prompt );
+		Field_Draw( g_consoleField,
+			consoleState.margin.sides + consoleState.padding.sides +
+				SCR_ConsoleFontStringWidth( decoloredPrompt.c_str(), decoloredPrompt.size() ),
+			linePosition, true, true, color.Alpha() );
+	}
 }
 
 void Con_DrawRightFloatingTextLine( const int linePosition, const Color::Color& color, const char* text )

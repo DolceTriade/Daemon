@@ -153,6 +153,27 @@ Key events are used for non-printable characters, others are gotten from char ev
 */
 void Field_KeyDownEvent(Util::LineEditData& edit, Keyboard::Key key) {
     using Keyboard::Key;
+
+	// Handle reverse search mode specially
+	if ( g_consoleField.IsReverseSearchActive() )
+	{
+		if ( key.kind() == Key::Kind::KEYNUM )
+		{
+			switch ( key.AsKeynum() )
+			{
+			case K_BACKSPACE:
+				g_consoleField.RemoveFromSearchPattern();
+				return;
+
+			default:
+				break;
+			}
+		}
+
+		// Block other editing keys during reverse search
+		return;
+	}
+
     if (key.kind() == Key::Kind::KEYNUM) {
         switch (key.AsKeynum()) {
         case K_DEL:
@@ -251,7 +272,15 @@ void Field_CharEvent(Util::LineEditData& edit, int c )
         return;
     }
 
-    if (overstrikeModeOn) {
+    // In reverse search mode, add to search pattern instead of field
+    if ( g_consoleField.IsReverseSearchActive() )
+    {
+        g_consoleField.AddToSearchPattern( static_cast<char>(c) );
+        return;
+    }
+
+    if ( overstrikeModeOn )
+    {
         edit.DeleteNext();
     }
     edit.AddChar(c);
@@ -310,9 +339,15 @@ static void Console_Key( Keyboard::Key key )
 		}
 	}
 
-	// escape closes the console
-	if ( key == Key(K_ESCAPE) )
+	// escape closes the console (or cancels reverse search)
+	if ( key == Key( K_ESCAPE ) )
 	{
+		if ( g_consoleField.IsReverseSearchActive() )
+		{
+			g_consoleField.CancelReverseSearch();
+			return;
+		}
+
 		if ( consoleState.isOpened )
 		{
 			Con_ToggleConsole_f();
@@ -327,8 +362,30 @@ static void Console_Key( Keyboard::Key key )
 		return;
 	}
 
+	// ctrl-R reverse history search
+	if ( key == Key::FromCharacter( 'r' ) && keys[ Key( K_CTRL ) ].down )
+	{
+		if ( g_consoleField.IsReverseSearchActive() )
+		{
+			g_consoleField.ReverseSearchNext();
+		}
+		else
+		{
+			g_consoleField.StartReverseSearch();
+		}
+		return;
+	}
+
 	// enter finishes the line
-	if (key == Key(K_ENTER) or key == Key(K_KP_ENTER)) {
+	if ( key == Key( K_ENTER ) or key == Key( K_KP_ENTER ) )
+	{
+
+		// If in reverse search, accept the match without executing
+		if ( g_consoleField.IsReverseSearchActive() )
+		{
+			g_consoleField.AcceptReverseSearch();
+			return;
+		}
 
 		//scroll lock state 1 or smaller will scroll down on own output
 		if (con_scrollLock.Get() <= 1) {
