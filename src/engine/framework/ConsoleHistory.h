@@ -51,6 +51,8 @@ namespace Console {
         void PrevLine(Line& text);
         void NextLine(Line& text);
 
+        const Container& GetLines() const { return lines; }
+
     private:
         static std::string GetFilename();
         static const Container::size_type SAVED_HISTORY_LINES = 512;

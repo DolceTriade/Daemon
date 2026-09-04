@@ -34,7 +34,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace Console {
 
-    Field::Field(int size): LineEditData(size) {
+    Field::Field(int size)
+        : LineEditData(size),
+          reverseSearchActive(false),
+          currentMatch(0)
+    {
     }
 
     void Field::HistoryPrev() {
@@ -134,6 +138,110 @@ namespace Console {
                 Log::CommandInteractionMessage(Str::Format("   %s%s %s", candidate.first, filler, candidate.second));
             }
         }
+    }
+
+    void Field::StartReverseSearch() {
+        if (reverseSearchActive) {
+            return;
+        }
+        savedFieldText = Str::UTF32To8(GetText());
+        reverseSearchActive = true;
+        searchPattern.clear();
+        matches.clear();
+        currentMatch = 0;
+        Clear();
+    }
+
+    void Field::UpdateReverseSearch() {
+        if (!reverseSearchActive) {
+            return;
+        }
+
+        matches.clear();
+        currentMatch = 0;
+
+        if (searchPattern.empty()) {
+            Clear();
+            return;
+        }
+
+        const auto& lines = hist.GetLines();
+        for (History::Container::size_type i = lines.size(); i-- > 0;) {
+            if (lines[i].find(searchPattern) != std::string::npos) {
+                matches.push_back(i);
+            }
+        }
+
+        if (!matches.empty()) {
+            currentMatch = matches.size() - 1;
+            SetText(Str::UTF8To32(lines[matches[currentMatch]]));
+        } else {
+            Clear();
+        }
+    }
+
+    void Field::ReverseSearchNext() {
+        if (!reverseSearchActive || matches.empty()) {
+            return;
+        }
+
+        if (currentMatch > 0) {
+            currentMatch--;
+        } else {
+            currentMatch = matches.size() - 1;
+        }
+
+        const auto& lines = hist.GetLines();
+        SetText(Str::UTF8To32(lines[matches[currentMatch]]));
+    }
+
+    void Field::AcceptReverseSearch() {
+        if (!reverseSearchActive) {
+            return;
+        }
+        reverseSearchActive = false;
+        searchPattern.clear();
+        matches.clear();
+        currentMatch = 0;
+        savedFieldText.clear();
+        SetCursor(GetText().size());
+    }
+
+    void Field::CancelReverseSearch() {
+        if (!reverseSearchActive) {
+            return;
+        }
+        reverseSearchActive = false;
+        searchPattern.clear();
+        matches.clear();
+        currentMatch = 0;
+        SetText(Str::UTF8To32(savedFieldText));
+        SetCursor(GetText().size());
+        savedFieldText.clear();
+    }
+
+    void Field::AddToSearchPattern(char c) {
+        if (!reverseSearchActive) {
+            return;
+        }
+        searchPattern.push_back(c);
+        UpdateReverseSearch();
+    }
+
+    void Field::RemoveFromSearchPattern() {
+        if (!reverseSearchActive || searchPattern.empty()) {
+            return;
+        }
+        searchPattern.pop_back();
+        UpdateReverseSearch();
+    }
+
+    bool Field::IsReverseSearchActive() const {
+        return reverseSearchActive;
+    }
+
+    const std::string& Field::GetSearchPattern() const {
+        return searchPattern;
     }
 
 }
