@@ -47,8 +47,25 @@ namespace Console {
             void RunCommand(Str::StringRef defaultCommand = "");
             void AutoComplete();
 
+            // Reverse incremental history search (Ctrl-R)
+            void StartReverseSearch();
+            void UpdateReverseSearch();
+            void ReverseSearchNext();
+            void AcceptReverseSearch();
+            void CancelReverseSearch();
+            void AddToSearchPattern(char c);
+            void RemoveFromSearchPattern();
+            bool IsReverseSearchActive() const;
+            const std::string& GetSearchPattern() const;
+
         private:
             History hist;
+
+            bool reverseSearchActive;
+            std::string searchPattern;
+            std::vector<History::Container::size_type> matches;
+            size_t currentMatch;
+            std::string savedFieldText;
     };
 
 }

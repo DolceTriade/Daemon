@@ -195,11 +195,26 @@ static void CON_Hide()
 			return;
 		}
 
-		for (int i = TTY_field.GetText().size(); i-->0;) {
-			CON_Back();
+		if ( TTY_field.IsReverseSearchActive() )
+		{
+			// In search mode, the prompt is "(reverse-i-search)`pattern`: "
+			// Erase the prompt and match from the current cursor position.
+			std::string prompt = Str::Format( "(reverse-i-search)`%s`: ", TTY_field.GetSearchPattern().c_str() );
+			int totalLen = prompt.size() + TTY_field.GetText().size();
+			for ( int i = totalLen; i-- > 0; )
+			{
+				WriteToStdout( "\b \b" );
+			}
 		}
+		else
+		{
+			for ( int i = TTY_field.GetText().size(); i-- > 0; )
+			{
+				CON_Back();
+			}
 
-		CON_Back(); // Delete "]"
+			CON_Back(); // Delete "]"
+		}
 		ttycon_hide++;
 	}
 }
@@ -221,10 +236,20 @@ static void CON_Show()
 
 		if ( ttycon_hide == 0 )
 		{
-			WriteToStdout("]");
-
-			std::string text = Str::UTF32To8(TTY_field.GetText());
-			WriteToStdout(text.c_str());
+			if ( TTY_field.IsReverseSearchActive() )
+			{
+				// Show reverse search prompt: (reverse-i-search)`pattern`: matched_text
+				std::string prompt = Str::Format( "(reverse-i-search)`%s`: ", TTY_field.GetSearchPattern().c_str() );
+				WriteToStdout( prompt.c_str() );
+				std::string text = Str::UTF32To8( TTY_field.GetText() );
+				WriteToStdout( text.c_str() );
+			}
+			else
+			{
+				WriteToStdout( "]" );
+				std::string text = Str::UTF32To8( TTY_field.GetText() );
+				WriteToStdout( text.c_str() );
+			}
 		}
 	}
 }
@@ -340,6 +365,72 @@ char *CON_Input_TTY()
 
 		if ( avail != -1 )
 		{
+			// Reverse search mode handling
+			if ( TTY_field.IsReverseSearchActive() )
+			{
+				// backspace removes from search pattern
+				if ( ( key == TTY_erase ) || ( key == 127 ) || ( key == 8 ) )
+				{
+					CON_Hide();
+					TTY_field.RemoveFromSearchPattern();
+					CON_Show();
+					CON_FlushIn();
+					return nullptr;
+				}
+
+				// Ctrl-R cycles to next match
+				if ( key == '\x12' )
+				{
+					CON_Hide();
+					TTY_field.ReverseSearchNext();
+					CON_Show();
+					CON_FlushIn();
+					return nullptr;
+				}
+
+				// Enter accepts the match and executes
+				if ( key == '\n' )
+				{
+					TTY_field.AcceptReverseSearch();
+					TTY_field.RunCommand( com_consoleCommand.Get() );
+					WriteToStdout( "\n]" );
+					return nullptr;
+				}
+
+				// Escape or Ctrl-C cancels search
+				if ( key == '\x1b' || key == '\x03' )
+				{
+					CON_Hide();
+					TTY_field.CancelReverseSearch();
+					CON_Show();
+					CON_FlushIn();
+					return nullptr;
+				}
+
+				// Ctrl-U cancels search
+				if ( key == '\x15' )
+				{
+					CON_Hide();
+					TTY_field.CancelReverseSearch();
+					CON_Show();
+					CON_FlushIn();
+					return nullptr;
+				}
+
+				// Regular printable chars add to search pattern
+				if ( key >= ' ' && key != '\x7f' )
+				{
+					CON_Hide();
+					TTY_field.AddToSearchPattern( key );
+					CON_Show();
+					CON_FlushIn();
+					return nullptr;
+				}
+
+				CON_FlushIn();
+				return nullptr;
+			}
+
 			// we have something
 			// backspace?
 			// NOTE TTimo testing a lot of values .. seems it's the only way to get it to work everywhere
@@ -355,6 +446,16 @@ char *CON_Input_TTY()
 			// check if this is a control char
 			if ( ( key ) && ( key ) < ' ' )
 			{
+				// Ctrl-R starts reverse search
+				if ( key == '\x12' )
+				{
+					CON_Hide();
+					TTY_field.StartReverseSearch();
+					CON_Show();
+					CON_FlushIn();
+					return nullptr;
+				}
+
 				if ( key == '\n' )
 				{
 					TTY_field.RunCommand(com_consoleCommand.Get());
