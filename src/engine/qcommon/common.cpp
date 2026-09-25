@@ -788,6 +788,8 @@ void Com_Frame()
 
 	int             msec, minMsec;
 	static int      lastTime = 0;
+	static int      capRate = 0;
+	static int      capRemainder = 0;
 	//int             key;
 
 	int             timeBeforeFirstEvents;
@@ -856,17 +858,40 @@ void Com_Frame()
 			// connection issues with server.
 			if ( max > 0 )
 			{
+				// Preserve the fractional part of 1000 / max across frames. The
+				// old integer division made 120 become 125 FPS and 144 become
+				// 166.7 FPS. This accumulator emits an occasional +1 ms frame so
+				// the long-term average matches the requested cap.
+				if ( capRate != max )
+				{
+					capRate = max;
+					capRemainder = 0;
+				}
+
 				minMsec = std::max( 1000 / max, 3 );
+				if ( minMsec == 1000 / max && max <= 333 )
+				{
+					capRemainder += 1000 % max;
+					if ( capRemainder >= max )
+					{
+						minMsec++;
+						capRemainder -= max;
+					}
+				}
 			}
 			// A zero maxfps unlocks fps but still cap it to 333 to avoid bugs.
 			else if ( max == 0 )
 			{
 				minMsec = 3;
+				capRate = 0;
+				capRemainder = 0;
 			}
 			// A negative maxfps really unlocks fps (and bugs).
 			else
 			{
 				minMsec = 1;
+				capRate = 0;
+				capRemainder = 0;
 			}
 		}
 	}
