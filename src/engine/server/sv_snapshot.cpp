@@ -35,6 +35,9 @@ Maryland 20850 USA.
 #include "server.h"
 #include "qcommon/sys.h"
 
+#include <algorithm>
+#include <vector>
+
 /*
 =============================================================================
 
@@ -766,6 +769,83 @@ static void SV_BuildClientSnapshot( client_t *client )
 
 /*
 ====================
+SV_TrimClientSnapshot
+
+Keep the snapshot wire format unchanged when a pathological entity set is too
+large for MAX_MSGLEN.  The snapshot is already sorted by entity number, so
+select by priority first and restore the required wire order afterwards.
+====================
+*/
+static int SV_SnapshotEntityPriority( client_t *client, const entityState_t& state )
+{
+	const sharedEntity_t *ent = SV_GentityNum( state.number );
+	const int flags = ent->r.svFlags;
+
+	// Client-specific and globally visible entities are the least expendable.
+	if ( flags & ( SVF_SINGLECLIENT | SVF_CLIENTMASK | SVF_BROADCAST | SVF_BROADCAST_ONCE ) )
+	{
+		return 0;
+	}
+
+	// Other player entities are more important than ordinary world entities.
+	if ( state.number < MAX_CLIENTS )
+	{
+		return 1;
+	}
+
+	// Prefer entities nearest to the client.  Keep the value bounded so the
+	// entity number remains a deterministic tie breaker.
+	const sharedEntity_t *clientEnt = client->gentity;
+	const float distance = clientEnt ? Distance( state.origin, clientEnt->s.origin ) : 0.0f;
+	return 2 + std::min( 1000000, static_cast<int>( distance ) );
+}
+
+static bool SV_TrimClientSnapshot( client_t *client, clientSnapshot_t *frame )
+{
+	if ( frame->num_entities <= 1 )
+	{
+		return false;
+	}
+
+	std::vector<entityState_t> entities;
+	entities.reserve( frame->num_entities );
+
+	for ( int i = 0; i < frame->num_entities; ++i )
+	{
+		entities.push_back( svs.snapshotEntities[
+			( frame->first_entity + i ) % svs.numSnapshotEntities ] );
+	}
+
+	// Remove the least important quarter, with a minimum of one entity.  A
+	// retry loop around the real encoder below handles variable-size deltas.
+	const int keep = std::max( 1, frame->num_entities -
+		std::max( 1, frame->num_entities / 4 ) );
+	std::stable_sort( entities.begin(), entities.end(), [ client ](
+		const entityState_t& a, const entityState_t& b )
+	{
+		const int pa = SV_SnapshotEntityPriority( client, a );
+		const int pb = SV_SnapshotEntityPriority( client, b );
+		return pa != pb ? pa < pb : a.number < b.number;
+	} );
+	entities.resize( keep );
+
+	std::sort( entities.begin(), entities.end(), []( const entityState_t& a, const entityState_t& b )
+	{
+		return a.number < b.number;
+	} );
+
+	for ( int i = 0; i < keep; ++i )
+	{
+		svs.snapshotEntities[
+			( frame->first_entity + i ) % svs.numSnapshotEntities ] = entities[ i ];
+	}
+
+	frame->num_entities = keep;
+	return true;
+}
+
+/*
+====================
 SV_RateMsec
 
 Return the number of msec a given size message is supposed
@@ -937,6 +1017,7 @@ void SV_SendClientSnapshot( client_t *client )
 {
 	byte  msg_buf[ MAX_MSGLEN ];
 	msg_t msg;
+	bool includeDownload = true;
 
 	//bani
 	if ( client->state < clientState_t::CS_ACTIVE )
@@ -960,30 +1041,49 @@ void SV_SendClientSnapshot( client_t *client )
 		return;
 	}
 
-	MSG_Init( &msg, msg_buf, sizeof( msg_buf ) );
+	clientSnapshot_t *frame = &client->frames[ client->netchan.outgoingSequence & PACKET_MASK ];
 
-	// NOTE, MRE: all server->client messages now acknowledge
-	// let the client know which reliable clientCommands we have received
-	MSG_WriteLong( &msg, client->lastClientCommand );
-
-	// (re)send any reliable server commands
-	SV_UpdateServerCommandsToClient( client, &msg );
-
-	// send over all the relevant entityState_t
-	// and the playerState_t
-	SV_WriteSnapshotToClient( client, &msg );
-
-	// Add any download data if the client is downloading
-	SV_WriteDownloadToClient( client, &msg );
-
-	// check for overflow
-	if ( msg.overflowed )
+	for ( ;; )
 	{
-		Log::Warn("msg overflowed for %s", client->name );
-		MSG_Clear( &msg );
+		MSG_Init( &msg, msg_buf, sizeof( msg_buf ) );
 
-		SV_DropClient( client, "Msg overflowed" );
-		return;
+		// NOTE, MRE: all server->client messages now acknowledge
+		// let the client know which reliable clientCommands we have received
+		MSG_WriteLong( &msg, client->lastClientCommand );
+
+		// (re)send any reliable server commands
+		SV_UpdateServerCommandsToClient( client, &msg );
+
+		// send over all the relevant entityState_t and the playerState_t
+		SV_WriteSnapshotToClient( client, &msg );
+
+		// A download can wait for the next frame while an oversized snapshot is
+		// being recovered.  This keeps the snapshot budget independent of the
+		// download block size without changing the protocol.
+		if ( includeDownload )
+		{
+			SV_WriteDownloadToClient( client, &msg );
+		}
+
+		if ( !msg.overflowed )
+		{
+			break;
+		}
+
+		if ( includeDownload )
+		{
+			includeDownload = false;
+			continue;
+		}
+
+		if ( !SV_TrimClientSnapshot( client, frame ) )
+		{
+			Log::Warn( "msg overflowed for %s", client->name );
+			MSG_Clear( &msg );
+			SV_DropClient( client, "Msg overflowed" );
+			return;
+		}
+
 	}
 
 	SV_SendMessageToClient( &msg, client );
