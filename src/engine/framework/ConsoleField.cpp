@@ -173,7 +173,9 @@ namespace Console {
         }
 
         if (!matches.empty()) {
-            currentMatch = matches.size() - 1;
+            // Matches are collected from newest to oldest, so start with the
+            // most recent matching history entry.
+            currentMatch = 0;
             SetText(Str::UTF8To32(lines[matches[currentMatch]]));
         } else {
             Clear();
@@ -185,11 +187,7 @@ namespace Console {
             return;
         }
 
-        if (currentMatch > 0) {
-            currentMatch--;
-        } else {
-            currentMatch = matches.size() - 1;
-        }
+        currentMatch = std::min( ++currentMatch, matches.size() - 1 );
 
         const auto& lines = hist.GetLines();
         SetText(Str::UTF8To32(lines[matches[currentMatch]]));
