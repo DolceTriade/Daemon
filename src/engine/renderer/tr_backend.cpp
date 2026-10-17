@@ -95,7 +95,7 @@ GLuint64 BindAnimatedImage( int unit, const textureBundle_t *bundle )
 		{
 			GL_SelectTexture( unit );
 			CIN_UploadCinematic( bundle->videoMapHandle );
-			return tr.cinematicImage[ bundle->videoMapHandle ]->texture->bindlessTextureHandle;
+			return GL_BindToTMU( unit, tr.cinematicImage[ bundle->videoMapHandle ] );
 		}
 		else
 		{
@@ -3059,6 +3059,28 @@ void RE_UploadCinematic( int cols, int rows, const byte *data, int client, bool 
 	to be a multiples of 4). */
 	if ( cols != tr.cinematicImage[ client ]->width || rows != tr.cinematicImage[ client ]->height )
 	{
+		// When using bindless textures, we need to recreate the texture when the video size changes because
+		// bindless textures are not allowed to update the size once created.
+		// This is guaranteed to happen at least once when we replace the place holder 1x1 video texture
+		// with the real video.
+		if ( glConfig.usingBindlessTextures && tr.cinematicImage[ client ]->texture->hasBindlessHandle )
+		{
+			Texture* texture = tr.cinematicImage[ client ]->texture;
+			if ( texture->IsResident() )
+			{
+				texture->MakeNonResident();
+			}
+
+			glDeleteTextures( 1, &tr.cinematicImage[ client ]->texnum );
+			glGenTextures( 1, &tr.cinematicImage[ client ]->texnum );
+			// Set new texnum.
+			texture->textureHandle = tr.cinematicImage[ client ]->texnum;
+			// Reset handle so it will get regenerated below.
+			texture->bindlessTextureHandle = 0;
+			texture->hasBindlessHandle = false;
+			GL_Bind( tr.cinematicImage[ client ] );
+		}
+
 		tr.cinematicImage[ client ]->width = tr.cinematicImage[ client ]->uploadWidth = cols;
 		tr.cinematicImage[ client ]->height = tr.cinematicImage[ client ]->uploadHeight = rows;
 

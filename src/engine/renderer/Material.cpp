@@ -1500,6 +1500,10 @@ void MaterialSystem::AddStageTextures( MaterialSurface* surface, shaderStage_t* 
 
 		if ( bundle.isVideoMap ) {
 			material->AddTexture( tr.cinematicImage[bundle.videoMapHandle]->texture );
+			textureData.textureMatrixBundle = i;
+			textureData.texBundles[bundleNum] = &bundle;
+			bundleNum++;
+			dynamic = true;
 			continue;
 		}
 
