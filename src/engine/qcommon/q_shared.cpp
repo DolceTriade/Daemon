@@ -406,7 +406,7 @@ int COM_Compress( char *data_p )
 				}
 
 				ws = false;
-				
+
 			}
 			// skip /* */ comments
 			else if ( c == '/' && datai[ 1 ] == '*' )
@@ -2025,7 +2025,7 @@ void Info_SetValueForKey( char *s, const char *key, const char *value, bool big 
 
 	if ( strchr( key, ';' ) || ( value && strchr( value, ';' ) ) )
 	{
-        Log::Notice( "Can't use keys or values with a semicolon" );
+        Log::Notice( "Can't use keys or values with a semicolon: key=%s value=%s s=%s", key, value, s );
 		return;
 	}
 
@@ -2046,7 +2046,7 @@ void Info_SetValueForKey( char *s, const char *key, const char *value, bool big 
 
 	if ( strlen( newi ) + slen >= (unsigned) maxlen )
 	{
-        Log::Notice( "Info string length exceeded" );
+        Log::Notice( "Info string length exceeded: key=%s value=%s s=%s big=%d", key, value, s, big );
 		return;
 	}
 
@@ -2081,7 +2081,7 @@ void Info_SetValueForKeyRocket( char *s, const char *key, const char *value, boo
 
 	if ( strlen( newi ) + slen >= (unsigned) maxlen )
 	{
-        Log::Notice( "Info string length exceeded" );
+        Log::Notice( "Rocket Info string length exceeded: key=%s value=%s s=%s big=%d", key, value, s, big );
 		return;
 	}
 
